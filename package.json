@@ -1,0 +1,27 @@
+{
+    "author": "Robert Meissner <rome@live.com",
+    "bugs": {
+        "url": "https://github.com/vanillaspa/web-components/issues"
+    },
+    "description": "This is a lifecycle-implementation of a CustomElements registry for standards-conforming WebComponents.",
+    "homepage": "https://github.com/vanillaspa/web-components#readme",
+    "keywords": [
+        "CustomElements",
+        "JavaScript",
+        "Vanilla",
+        "SPA",
+        "WebComponents"
+    ],
+    "license": "Unlicense",
+    "main": "index.js",
+    "name": "@vanillaspa/web-components",
+    "publishConfig": {
+        "access": "public"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/vanillaspa/web-components.git"
+    },
+    "type": "module",
+    "version": "1.0.0"
+}
