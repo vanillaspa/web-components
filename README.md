@@ -8,14 +8,13 @@ npm install @vanillaspa/web-components
 
 ## How-To
 
-Please stick to the following conventions! When working with Vite (recommended), put your components into `public/components` folder. Then add a `generate` script command to your `package.json`:
+Please stick to the following conventions! When working with Vite (recommended), put your components into `public/components` folder. Then add these script-commands to your `package.json`:
 
 ```javascript
   "scripts": {
-    "dev": "npm run generate && vite",
-    "build": "npm run generate && vite build",
+    "dev": "vite",
+    "build": "vite build",
     "preview": "vite preview",
-    "generate": "node node_modules/@vanillaspa/web-components/generate.cjs"
   }
 ```
 Then run
@@ -24,9 +23,7 @@ Then run
 npm run dev
 ```
 
-This will autogenerate a map of your WebComponents inside the `src/components` folder.
-
-Finally import your web-components with:
+In your code, just import your web-components with:
 
 ```
 <script type="module">
@@ -36,4 +33,4 @@ Finally import your web-components with:
 
 After importing web-components, your WebComponents will be defined in the CustemElements registry. You don't have to register your elements manually. Just put them into the public folder.
 
-**Important!** Each WebComponent must be located in your project in a subfolder under `public/components`, for instance: `public/components/app/app-start.html`.
+**Important!** Each WebComponent must be located in your project in a subfolder under `public/components`, for instance: `public/components/app/app-start.html` in order for the import.meta.glob Wildcard-Pattern to work properly.
