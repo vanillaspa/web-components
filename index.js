@@ -1,4 +1,4 @@
-import { htmlFiles } from '../../../src/components';
+const htmlFiles = import.meta.glob('/public/components/**/*.html', { query: '?raw', import: 'default', eager: true });
 
 window.getShadowDocument = function magic(hostDataIDs) {
     if (typeof hostDataIDs === 'string') { hostDataIDs = hostDataIDs.split(','); }
@@ -28,8 +28,9 @@ function getComponentName(filePath) {
 }
 
 for (let filePath of Object.keys(htmlFiles)) {
-    let html = htmlFiles[filePath];
     let componentName = getComponentName(filePath);
+    console.debug(`defining ${componentName}...`);
+    let html = htmlFiles[filePath];
     const fragment = document.createRange().createContextualFragment(html);
     const scriptFragment = fragment.querySelector("script");
     const styleFragment = fragment.querySelector("style");
