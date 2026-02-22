@@ -1,4 +1,4 @@
-const htmlFiles = import.meta.glob('/public/components/**/*.html', { query: '?raw', import: 'default', eager: true });
+const htmlFiles = import.meta.glob('/src/components/**/*.html', { query: '?raw', import: 'default', eager: true });
 
 window.getShadowDocument = function magic(hostDataIDs) {
     if (typeof hostDataIDs === 'string') { hostDataIDs = hostDataIDs.split(','); }
