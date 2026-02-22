@@ -31,6 +31,6 @@ In your code, just import your web-components with:
 </script>
 ```
 
-After importing web-components, your WebComponents will be defined in the CustemElements registry. You don't have to register your elements manually. Just put them into the public folder.
+After importing web-components, your WebComponents will be defined in the CustemElements registry. You don't have to register your elements manually. Just put them into a seperate folder under src/components.
 
-**Important!** Each WebComponent must be located in your project in a subfolder under `src/components`, for instance: `src/components/app/app-start.html` in order for the import.meta.glob Wildcard-Pattern to work properly.
+**Important!** Each WebComponent must be located in your project in a subfolder under `src/components`, for instance, for a component named `<app-start></app-start>` it should be `src/components/app/app-start.html` in order for the import.meta.glob Wildcard-Pattern to work properly.
