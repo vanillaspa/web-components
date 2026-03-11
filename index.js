@@ -50,6 +50,9 @@ for (let filePath of Object.keys(htmlFiles)) {
             }
             this.#render();
         }
+        disconnectedCallback() {
+            this.dispatchEvent(new CustomEvent('component:disconnected', { bubbles: false }));
+        }
         #render() {
             this.shadowRoot.replaceChildren();
             this.#appendTemplate();
