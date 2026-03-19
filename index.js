@@ -29,12 +29,12 @@ function getComponentName(filePath) {
 
 for (let filePath of Object.keys(htmlFiles)) {
     let componentName = getComponentName(filePath);
-    console.debug(`defining ${componentName}...`);
     let html = htmlFiles[filePath];
     const fragment = document.createRange().createContextualFragment(html);
     const scriptFragment = fragment.querySelector("script");
     const styleFragment = fragment.querySelector("style");
     const templateFragment = fragment.querySelector("template");
+    console.debug(`define ${componentName}...`);
     customElements.define(componentName, class extends HTMLElement {
         constructor() {
             super();
@@ -42,7 +42,7 @@ for (let filePath of Object.keys(htmlFiles)) {
         }
         connectedCallback() {
             this.hostDataIDs = []; // used to find the nested shadowDocument
-            this.dataset.id = Math.random().toString(16).substring(2, 8); // should suffice
+            this.dataset.id = crypto.randomUUID().replaceAll('-', '').substring(0, 8);
             let hostElement = this;
             while (hostElement && hostElement.dataset.id) { // +3 get parent.host data-id 's
                 this.hostDataIDs.push(hostElement.dataset.id);
@@ -51,6 +51,7 @@ for (let filePath of Object.keys(htmlFiles)) {
             this.#render();
         }
         disconnectedCallback() {
+            console.debug("disconnecting", this);
             this.dispatchEvent(new CustomEvent('component:disconnected', { bubbles: false }));
         }
         #render() {
