@@ -1,87 +1,99 @@
+/**
+ * @fileoverview Auto-registration of HTML Single File Components as custom elements.
+ *
+ * At build time, Vite's `import.meta.glob` eagerly imports every `.html` file
+ * under `src/components/` as a raw string. Each file is parsed and registered
+ * as a `customElements.define(...)` using the filename as the element tag name:
+ *
+ * ```
+ * src/components/foo/foo-bar.html          →  <foo-bar>
+ * src/components/foo/foo-bar-baz-qux.html  →  <foo-bar-baz-qux>
+ * ```
+ *
+ * Each custom element uses an open `ShadowDOM`. On `connectedCallback`, the
+ * element assigns itself a `data-id` (8 hex chars, CSPRNG), renders its
+ * `<template>` and `<style>`, then executes the `<script>` body as an
+ * `AsyncFunction` with `shadowDocument` (the shadow root) passed directly
+ * as a parameter. No inline `<script>` elements are injected, so the app
+ * does not require `'unsafe-inline'` in Content-Security-Policy — only
+ * `'unsafe-eval'` for the `AsyncFunction` constructor.
+ *
+ * On `disconnectedCallback`, a `component:disconnected` custom event is
+ * dispatched on the element for event bus auto-cleanup.
+ *
+ * @module web-components
+ */
+
+/** @type {Record<string, string>} file path → raw HTML string */
 const htmlFiles = import.meta.glob('/src/components/**/*.html', { query: '?raw', import: 'default', eager: true });
 
-window.getShadowDocument = function magic(hostDataIDs) {
-    if (typeof hostDataIDs === 'string') { hostDataIDs = hostDataIDs.split(','); }
-    else if (Array.isArray(hostDataIDs)) { hostDataIDs = hostDataIDs.toReversed(); }
-    else return undefined;
-    if (hostDataIDs) {
-        let shadowDOM = document;
-        for (let hostDataID of hostDataIDs) {
-            let found = shadowDOM.querySelector('[data-id="' + hostDataID + '"]');
-            if (found) { shadowDOM = found.shadowRoot; } else {
-                console.error({ hostDataID });
-                return null;
-            }
-        }
-        return shadowDOM;
-    }
-    return null;
-}
+/** @type {AsyncFunctionConstructor} */
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
+/**
+ * Derive the custom element tag name from a component file path.
+ *
+ * @example
+ * getComponentName('/src/components/router/router-app2.html')      // → 'router-app2'
+ * getComponentName('/src/components/foo/foo-bar-baz-qux.html')      // → 'foo-bar-baz-qux'
+ *
+ * @param {string} filePath - Absolute file path from `import.meta.glob`.
+ * @returns {string} Custom element tag name.
+ */
 function getComponentName(filePath) {
     const fileName = filePath.split("/").pop();
-    const dashSplit = fileName.split('-');
-    const prefix = dashSplit[0];
-    const dotSplit = dashSplit[1].split('.'); // TODO accept three-fold-components
-    const suffix = dotSplit[0];
-    return `${prefix}-${suffix}`;
+    return fileName.split('.')[0];
 }
 
-for (let filePath of Object.keys(htmlFiles)) {
-    let componentName = getComponentName(filePath);
-    let html = htmlFiles[filePath];
+/**
+ * Parse an SFC HTML string into its three fragments and a setup function.
+ *
+ * The `<script>` body is compiled once per component type into an
+ * `AsyncFunction('shadowDocument', ...)`. Each instance calls it with its
+ * own shadow root — no inline scripts, no global lookup.
+ *
+ * @param {string} html - Raw HTML content of the `.html` file.
+ * @returns {{ template: HTMLTemplateElement|null, style: HTMLStyleElement|null, setup: AsyncFunction|null }}
+ */
+function parseComponent(html) {
     const fragment = document.createRange().createContextualFragment(html);
-    const scriptFragment = fragment.querySelector("script");
-    const styleFragment = fragment.querySelector("style");
-    const templateFragment = fragment.querySelector("template");
-    console.debug(`define ${componentName}...`);
-    customElements.define(componentName, class extends HTMLElement {
+    const scriptEl = fragment.querySelector("script");
+    return {
+        template: fragment.querySelector("template"),
+        style:    fragment.querySelector("style"),
+        setup:    scriptEl ? new AsyncFunction('shadowDocument', scriptEl.textContent) : null,
+    };
+}
+
+/**
+ * Render template and style into a shadow root.
+ *
+ * @param {ShadowRoot} shadowRoot
+ * @param {{ template: HTMLTemplateElement|null, style: HTMLStyleElement|null }} component
+ */
+function render(shadowRoot, component) {
+    shadowRoot.replaceChildren();
+    if (component.template) shadowRoot.appendChild(component.template.content.cloneNode(true));
+    if (component.style) shadowRoot.appendChild(component.style.cloneNode(true));
+}
+
+for (const [filePath, html] of Object.entries(htmlFiles)) {
+    const component = parseComponent(html);
+
+    customElements.define(getComponentName(filePath), class extends HTMLElement {
         constructor() {
             super();
-            const shadowRoot = this.attachShadow({ mode: "open" });
+            this.attachShadow({ mode: "open" });
         }
+
         connectedCallback() {
-            this.hostDataIDs = []; // used to find the nested shadowDocument
-            this.dataset.id = crypto.randomUUID().replaceAll('-', '').substring(0, 8);
-            let hostElement = this;
-            while (hostElement && hostElement.dataset.id) { // +3 get parent.host data-id 's
-                this.hostDataIDs.push(hostElement.dataset.id);
-                hostElement = hostElement.getRootNode().host;
-            }
-            this.#render();
+            this.dataset.id = crypto.randomUUID().split('-')[0];
+            render(this.shadowRoot, component);
+            component.setup?.(this.shadowRoot);
         }
+
         disconnectedCallback() {
-            console.debug("disconnecting", this);
             this.dispatchEvent(new CustomEvent('component:disconnected', { bubbles: false }));
-        }
-        #render() {
-            this.shadowRoot.replaceChildren();
-            this.#appendTemplate();
-            this.#appendStyle();
-            this.#appendScript();
-        }
-        #appendScript() {
-            if (scriptFragment) {
-                const scriptElement = document.createElement("script");
-                scriptElement.setAttribute("type", "module");
-                scriptElement.textContent = `
-const shadowDocument = getShadowDocument('${this.hostDataIDs.toReversed().toString()}');
-${scriptFragment ? scriptFragment.textContent : ''}
-`;
-                this.shadowRoot.appendChild(scriptElement);
-            }
-        }
-        #appendStyle() {
-            if (styleFragment) {
-                let clonedStyle = styleFragment.cloneNode(true);
-                this.shadowRoot.appendChild(clonedStyle);
-            }
-        }
-        #appendTemplate() {
-            if (templateFragment) {
-                const clonedFragment = templateFragment.content.cloneNode(true);
-                this.shadowRoot.appendChild(clonedFragment);
-            }
         }
     });
 }
