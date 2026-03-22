@@ -30,20 +30,6 @@ const htmlFiles = import.meta.glob('/src/components/**/*.html', { query: '?raw',
 /** @type {AsyncFunctionConstructor} */
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
-/**
- * Derive the custom element tag name from a component file path.
- *
- * @example
- * getComponentName('/src/components/router/router-app2.html')      // → 'router-app2'
- * getComponentName('/src/components/foo/foo-bar-baz-qux.html')      // → 'foo-bar-baz-qux'
- *
- * @param {string} filePath - Absolute file path from `import.meta.glob`.
- * @returns {string} Custom element tag name.
- */
-function getComponentName(filePath) {
-    const fileName = filePath.split("/").pop();
-    return fileName.split('.')[0];
-}
 
 /**
  * Parse an SFC HTML string into its three fragments and a setup function.
@@ -76,18 +62,17 @@ function render(shadowRoot, component) {
     if (component.template) shadowRoot.appendChild(component.template.content.cloneNode(true));
     if (component.style) shadowRoot.appendChild(component.style.cloneNode(true));
 }
-
 for (const [filePath, html] of Object.entries(htmlFiles)) {
     const component = parseComponent(html);
-
-    customElements.define(getComponentName(filePath), class extends HTMLElement {
+    // Absolute filePath from `import.meta.glob`. file-name is component-name
+    const componentName = filePath.split("/").pop().split('.')[0];
+    customElements.define(componentName, class extends HTMLElement {
         constructor() {
             super();
             this.attachShadow({ mode: "open" });
         }
 
         connectedCallback() {
-            this.dataset.id = crypto.randomUUID().split('-')[0];
             render(this.shadowRoot, component);
             component.setup?.(this.shadowRoot);
         }
