@@ -41,8 +41,7 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
  * @returns {string} Custom element tag name.
  */
 function getComponentName(filePath) {
-    const fileName = filePath.split("/").pop();
-    return fileName.split('.')[0];
+    
 }
 
 /**
@@ -80,14 +79,14 @@ function render(shadowRoot, component) {
 for (const [filePath, html] of Object.entries(htmlFiles)) {
     const component = parseComponent(html);
 
-    customElements.define(getComponentName(filePath), class extends HTMLElement {
+    const componentName = filePath.split("/").pop().split('.')[0];
+    customElements.define(componentName, class extends HTMLElement {
         constructor() {
             super();
             this.attachShadow({ mode: "open" });
         }
 
         connectedCallback() {
-            this.dataset.id = crypto.randomUUID().split('-')[0];
             render(this.shadowRoot, component);
             component.setup?.(this.shadowRoot);
         }
