@@ -19,6 +19,9 @@
     ],
     "license": "Unlicense",
     "main": "index.js",
+    "peerDependencies": {
+        "vite": ">=8.0.8"
+    },
     "name": "@vanillaspa/web-components",
     "publishConfig": {
         "access": "public"
@@ -31,5 +34,5 @@
         "test": "vitest"
     },
     "type": "module",
-    "version": "2.1.2"
+    "version": "2.1.3"
 }

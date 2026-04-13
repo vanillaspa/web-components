@@ -1,6 +1,6 @@
 # @vanillaspa/web-components
 
-> Zero-boilerplate Single File Components — pure HTML, no framework, no build step overhead.
+> Single File Components powered by Vite — pure HTML, vanilla JS.
 
 Write a `.html` file. Get a custom element. That's it.
 
@@ -41,8 +41,11 @@ The `<script>` body receives **`shadowDocument`** — the element's open `Shadow
 
 ## Installation
 
+`@vanillaspa/web-components` uses `import.meta.glob`, a [Vite](https://vite.dev)-specific build primitive. **Vite is required** as a peer dependency.
+
 ```bash
 npm install @vanillaspa/web-components
+npm install --save-dev vite
 ```
 
 ---
