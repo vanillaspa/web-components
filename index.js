@@ -1,30 +1,30 @@
 /**
  * @fileoverview Auto-registration of HTML Single File Components as custom elements.
  *
- * At build time, Vite's `import.meta.glob` eagerly imports every `.html` file
- * under `src/components/` as a raw string. Each file is parsed and registered
- * as a `customElements.define(...)` using the filename as the element tag name:
+ * At build time, Vite's <code>import.meta.glob</code> eagerly imports every <code>.html</code> file
+ * under <code>src/components/</code> as a raw string. Each file is parsed and registered
+ * as a <code>customElements.define(...)</code> using the filename as the element tag name:
  *
- * ```
- * src/components/foo/foo-bar.html          →  <foo-bar>
- * src/components/foo/foo-bar-baz-qux.html  →  <foo-bar-baz-qux>
- * ```
+ * <pre><code>
+ * src/components/foo/foo-bar.html          →  &lt;foo-bar&gt;
+ * src/components/foo/foo-bar-baz-qux.html  →  &lt;foo-bar-baz-qux&gt;
+ * </code></pre>
  *
- * Each custom element uses an open `ShadowDOM`. On `connectedCallback`, the
- * element assigns itself a `data-id` (8 hex chars, CSPRNG), renders its
- * `<template>` and `<style>`, then executes the `<script>` body as an
- * `AsyncFunction` with `shadowDocument` (the shadow root) passed directly
- * as a parameter. No inline `<script>` elements are injected, so the app
- * does not require `'unsafe-inline'` in Content-Security-Policy — only
- * `'unsafe-eval'` for the `AsyncFunction` constructor.
+ * Each custom element uses an open <code>ShadowDOM</code>. On <code>connectedCallback</code>, the
+ * element renders its <code>&lt;template&gt;</code> and <code>&lt;style&gt;</code>, then executes the
+ * <code>&lt;script&gt;</code> body as an <code>AsyncFunction</code> with <code>shadowDocument</code>
+ * (the shadow root) passed directly as a parameter. No inline <code>&lt;script&gt;</code>
+ * elements are injected, so the app does not require <code>'unsafe-inline'</code> in
+ * Content-Security-Policy — only <code>'unsafe-eval'</code> for the <code>AsyncFunction</code>
+ * constructor.
  *
- * On `disconnectedCallback`, a `component:disconnected` custom event is
- * dispatched on the element for event bus auto-cleanup.
+ * On <code>disconnectedCallback</code>, a <code>component:disconnected</code> custom event is
+ * dispatched on the element for @vanillaspa/event-bus auto-cleanup.
  *
  * @module web-components
  */
 
-/** @type {Record<string, string>} file path → raw HTML string */
+/** @type {Record<string, string>} */
 const htmlFiles = import.meta.glob('/src/components/**/*.html', { query: '?raw', import: 'default', eager: true });
 
 /** @type {AsyncFunctionConstructor} */
@@ -34,14 +34,14 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 /**
  * Parse an SFC HTML string into its three fragments and a setup function.
  *
- * The `<script>` body is compiled once per component type into an
- * `AsyncFunction('shadowDocument', ...)`. Each instance calls it with its
+ * The <code>&lt;script&gt;</code> body is compiled once per component type into an
+ * <code>AsyncFunction('shadowDocument', ...)</code>. Each instance calls it with its
  * own shadow root — no inline scripts, no global lookup.
  *
- * @param {string} html - Raw HTML content of the `.html` file.
+ * @param {string} html - Raw HTML content of the <code>.html</code> file.
  * @returns {{ template: HTMLTemplateElement|null, style: HTMLStyleElement|null, setup: AsyncFunction|null }}
  */
-function parseComponent(html) {
+export function parseComponent(html) {
     const fragment = document.createRange().createContextualFragment(html);
     const scriptEl = fragment.querySelector("script");
     return {
@@ -57,28 +57,36 @@ function parseComponent(html) {
  * @param {ShadowRoot} shadowRoot
  * @param {{ template: HTMLTemplateElement|null, style: HTMLStyleElement|null }} component
  */
-function render(shadowRoot, component) {
+export function render(shadowRoot, component) {
     shadowRoot.replaceChildren();
     if (component.template) shadowRoot.appendChild(component.template.content.cloneNode(true));
     if (component.style) shadowRoot.appendChild(component.style.cloneNode(true));
 }
-for (const [filePath, html] of Object.entries(htmlFiles)) {
-    const component = parseComponent(html);
-    // Absolute filePath from `import.meta.glob`. file-name is component-name
-    const componentName = filePath.split("/").pop().split('.')[0];
-    customElements.define(componentName, class extends HTMLElement {
-        constructor() {
-            super();
-            this.attachShadow({ mode: "open" });
-        }
 
-        connectedCallback() {
-            render(this.shadowRoot, component);
-            component.setup?.(this.shadowRoot);
-        }
-
-        disconnectedCallback() {
-            this.dispatchEvent(new CustomEvent('component:disconnected', { bubbles: false }));
-        }
-    });
+/**
+ * Register all SFC HTML files as custom elements.
+ *
+ * @param {Record<string, string>} htmlFiles - Map of file path → raw HTML string.
+ */
+export function registerComponents(htmlFiles) {
+    for (const [filePath, html] of Object.entries(htmlFiles)) {
+        const component = parseComponent(html);
+        // Absolute filePath from `import.meta.glob`. file-name is component-name
+        const componentName = filePath.split("/").pop().split('.')[0];
+        customElements.define(componentName, class extends HTMLElement {
+            constructor() {
+                super();
+                this.attachShadow({ mode: "open" });
+            }
+            connectedCallback() {
+                render(this.shadowRoot, component);
+                component.setup?.(this.shadowRoot);
+            }
+            disconnectedCallback() {
+                this.dispatchEvent(new CustomEvent('component:disconnected', { bubbles: false }));
+            }
+        });
+    }
 }
+
+registerComponents(htmlFiles);
