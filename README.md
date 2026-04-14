@@ -2,13 +2,13 @@
 
 > Single File Components powered by Vite — pure HTML, vanilla JS.
 
-Write a `.html` file. Get a custom element. That's it.
+Write a `.sfc` file. Get a custom element. That's it.
 
 ---
 
 ## How it works
 
-Each `.html` file under `src/components/` is a **Single File Component** containing up to three top-level tags:
+Each `.sfc` file under `src/components/` is a **Single File Component** containing up to three top-level tags:
 
 ```html
 <!-- src/components/app/app-card.html -->
@@ -28,12 +28,12 @@ Each `.html` file under `src/components/` is a **Single File Component** contain
 </script>
 ```
 
-At build time, the Vite plugin SFC transforms each `.html` file into a real ES module — no string evaluation at runtime. `import.meta.glob` eagerly imports those modules, and `registerComponents` calls `customElements.define()` using the **filename stem as the tag name**:
+At build time, the Vite plugin SFC transforms each `.sfc` file into a real ES module — no string evaluation at runtime. `import.meta.glob` eagerly imports those modules, and `registerComponents` calls `customElements.define()` using the **filename stem as the tag name**:
 
 | File | Element |
 |------|---------|
-| `src/components/app/app-card.html` | `<app-card>` |
-| `src/components/ui/nav-bar.html` | `<nav-bar>` |
+| `src/components/app/app-card.sfc` | `<app-card>` |
+| `src/components/ui/nav-bar.sfc` | `<nav-bar>` |
 
 The `<script>` body receives **`shadowDocument`** — the element's open `ShadowRoot` — as its only argument. No globals, no `this`, no framework conventions to memorise.
 
@@ -70,7 +70,7 @@ export default defineConfig({
 // main.js (or wherever your app boots)
 import { registerComponents } from '@vanillaspa/web-components';
 
-registerComponents(import.meta.glob('/src/components/**/*.html', { eager: true }));
+registerComponents(import.meta.glob('/src/components/**/*.sfc', { eager: true }));
 ```
 
 Then just use your elements anywhere:
@@ -98,10 +98,10 @@ No `customElements.define()`. No imports per component. No wiring.
 src/
 └── components/
     ├── app/
-    │   ├── app-root.html
-    │   └── app-card.html
+    │   ├── app-root.sfc
+    │   └── app-card.sfc
     └── ui/
-        └── nav-bar.html
+        └── nav-bar.sfc
 ```
 
 > **Each component must live under `src/components/`** so the `import.meta.glob` pattern picks it up correctly.
