@@ -28,7 +28,7 @@ Each `.html` file under `src/components/` is a **Single File Component** contain
 </script>
 ```
 
-At load time the module reads every matching file via `import.meta.glob`, parses the three sections, and calls `customElements.define()` — using the **filename stem as the tag name**:
+At build time, the Vite plugin SFC transforms each `.html` file into a real ES module — no string evaluation at runtime. `import.meta.glob` eagerly imports those modules, and `registerComponents` calls `customElements.define()` using the **filename stem as the tag name**:
 
 | File | Element |
 |------|---------|
@@ -52,21 +52,25 @@ npm install --save-dev vite
 
 ## Setup with Vite
 
-```json
-// package.json
-"scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-}
+### 1. Register the plugin
+
+```js
+// vite.config.js
+import { sfcPlugin } from '@vanillaspa/web-components/vite-plugin-sfc';
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+    plugins: [sfcPlugin()],
+});
 ```
 
-Import the module once in your entry HTML — components register themselves automatically:
+### 2. Call `registerComponents` in your entry point
 
-```html
-<script type="module">
-    import '@vanillaspa/web-components';
-</script>
+```js
+// main.js (or wherever your app boots)
+import { registerComponents } from '@vanillaspa/web-components';
+
+registerComponents(import.meta.glob('/src/components/**/*.html', { eager: true }));
 ```
 
 Then just use your elements anywhere:
@@ -76,6 +80,15 @@ Then just use your elements anywhere:
 ```
 
 No `customElements.define()`. No imports per component. No wiring.
+
+```json
+// package.json
+"scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+}
+```
 
 ---
 
@@ -91,14 +104,17 @@ src/
         └── nav-bar.html
 ```
 
-> **Each component must live in a subfolder under `src/components/`** so the `import.meta.glob` wildcard pattern picks it up correctly.
+> **Each component must live under `src/components/`** so the `import.meta.glob` pattern picks it up correctly.
+
+> **SFC root tags must not carry HTML attributes.** `<template>`, `<style>`, and `<script>` are matched by tag name only.
 
 ---
 
 ## Security
 
-- No `<script>` tags are injected into the DOM — scripts run as compiled `AsyncFunction` instances.
-- CSP requirement: `'unsafe-eval'` only. `'unsafe-inline'` is **not** needed.
+- `<script>` bodies are compiled to real ES module functions at **build time** by `sfcPlugin` — no runtime string evaluation.
+- No CSP relaxation required. Standard `script-src 'self'` is sufficient.
+- Styles are applied via [Constructable Stylesheets](https://developer.mozilla.org/en-US/docs/Web/API/CSSStyleSheet/CSSStyleSheet) (`adoptedStyleSheets`) — CSS is parsed once per component type, not once per instance.
 - On `disconnectedCallback` a `component:disconnected` event is dispatched on the host element for event-bus auto-cleanup (see [@vanillaspa/event-bus](https://github.com/vanillaspa/event-bus)).
 
 ---

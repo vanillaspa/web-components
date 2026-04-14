@@ -38,7 +38,7 @@
     <div class="container-overview">
     
         
-            <div class="description">Auto-registration of HTML Single File Components as custom elements.At build time, Vite's <code>import.meta.glob</code> eagerly imports every <code>.html</code> fileunder <code>src/components/</code> as a raw string. Each file is parsed and registeredas a <code>customElements.define(...)</code> using the filename as the element tag name:<pre><code>src/components/foo/foo-bar.html          →  &lt;foo-bar&gt;src/components/foo/foo-bar-baz-qux.html  →  &lt;foo-bar-baz-qux&gt;</code></pre>Each custom element uses an open <code>ShadowDOM</code>. On <code>connectedCallback</code>, theelement renders its <code>&lt;template&gt;</code> and <code>&lt;style&gt;</code>, then executes the<code>&lt;script&gt;</code> body as an <code>AsyncFunction</code> with <code>shadowDocument</code>(the shadow root) passed directly as a parameter. No inline <code>&lt;script&gt;</code>elements are injected, so the app does not require <code>'unsafe-inline'</code> inContent-Security-Policy — only <code>'unsafe-eval'</code> for the <code>AsyncFunction</code>constructor.On <code>disconnectedCallback</code>, a <code>component:disconnected</code> custom event isdispatched on the element for @vanillaspa/event-bus auto-cleanup.</div>
+            <div class="description">Auto-registration of HTML Single File Components as custom elements.At build time, the `sfcPlugin` Vite plugin transforms every `.html` file under`src/components/` into an ES module that exports `templateHtml`, `styleText`,and `setup`. `import.meta.glob` eagerly imports those real modules — no stringevaluation at runtime, no `unsafe-eval` in Content-Security-Policy.The consuming app's entry point is responsible for calling `registerComponents`with its own `import.meta.glob` result, keeping this module free of side effectsand fully tree-shakeable:<pre><code>import { registerComponents } from '@vanillaspa/web-components';registerComponents(import.meta.glob('/src/components/**&#47;*.html', { eager: true }));</code></pre></div>
         
 
         
@@ -134,146 +134,6 @@
     
 
     
-        <h3 class="subsection-title">Members</h3>
-
-        
-            
-<h4 class="name" id="~AsyncFunction"><span class="type-signature">(inner, constant) </span>AsyncFunction<span class="type-signature"> :AsyncFunctionConstructor</span></h4>
-
-
-
-
-
-
-    <h5>Type:</h5>
-    <ul>
-        <li>
-            
-<span class="param-type">AsyncFunctionConstructor</span>
-
-
-        </li>
-    </ul>
-
-
-
-
-
-<dl class="details">
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-    <dt class="tag-source">Source:</dt>
-    <dd class="tag-source"><ul class="dummy"><li>
-        <a href="index.js.html">index.js</a>, <a href="index.js.html#line31">line 31</a>
-    </li></ul></dd>
-    
-
-    
-
-    
-
-    
-</dl>
-
-
-
-
-
-
-        
-            
-<h4 class="name" id="~htmlFiles"><span class="type-signature">(inner, constant) </span>htmlFiles<span class="type-signature"> :Record.&lt;string, string></span></h4>
-
-
-
-
-
-
-    <h5>Type:</h5>
-    <ul>
-        <li>
-            
-<span class="param-type">Record.&lt;string, string></span>
-
-
-        </li>
-    </ul>
-
-
-
-
-
-<dl class="details">
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-    <dt class="tag-source">Source:</dt>
-    <dd class="tag-source"><ul class="dummy"><li>
-        <a href="index.js.html">index.js</a>, <a href="index.js.html#line28">line 28</a>
-    </li></ul></dd>
-    
-
-    
-
-    
-
-    
-</dl>
-
-
-
-
-
-
-        
-    
 
     
         <h3 class="subsection-title">Methods</h3>
@@ -284,7 +144,7 @@
     
 
     
-    <h4 class="name" id=".parseComponent"><span class="type-signature">(static) </span>parseComponent<span class="signature">(html)</span><span class="type-signature"> &rarr; {Object}</span></h4>
+    <h4 class="name" id=".registerComponents"><span class="type-signature">(static) </span>registerComponents<span class="signature">(modules)</span><span class="type-signature"></span></h4>
     
 
     
@@ -292,7 +152,7 @@
 
 
 <div class="description">
-    Parse an SFC HTML string into its three fragments and a setup function.The <code>&lt;script&gt;</code> body is compiled once per component type into an<code>AsyncFunction('shadowDocument', ...)</code>. Each instance calls it with itsown shadow root — no inline scripts, no global lookup.
+    Register all SFC modules as custom elements.For each component, a <code>CSSStyleSheet</code> is constructed once and shared acrossall instances of that element via <code>adoptedStyleSheets</code>.
 </div>
 
 
@@ -328,13 +188,13 @@
 
         <tr>
             
-                <td class="name"><code>html</code></td>
+                <td class="name"><code>modules</code></td>
             
 
             <td class="type">
             
                 
-<span class="param-type">string</span>
+<span class="param-type">Record.&lt;string, SFCModule></span>
 
 
             
@@ -344,7 +204,7 @@
 
             
 
-            <td class="description last">Raw HTML content of the <code>.html</code> file.</td>
+            <td class="description last">Map of file path → SFC module.</td>
         </tr>
 
     
@@ -385,162 +245,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="index.js.html">index.js</a>, <a href="index.js.html#line44">line 44</a>
-    </li></ul></dd>
-    
-
-    
-
-    
-
-    
-</dl>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<h5>Returns:</h5>
-
-        
-
-
-<dl>
-    <dt>
-        Type
-    </dt>
-    <dd>
-        
-<span class="param-type">Object</span>
-
-
-    </dd>
-</dl>
-
-    
-
-
-
-
-
-        
-            
-
-    
-
-    
-    <h4 class="name" id=".registerComponents"><span class="type-signature">(static) </span>registerComponents<span class="signature">(htmlFiles)</span><span class="type-signature"></span></h4>
-    
-
-    
-
-
-
-<div class="description">
-    Register all SFC HTML files as custom elements.
-</div>
-
-
-
-
-
-
-
-
-
-    <h5>Parameters:</h5>
-    
-
-<table class="params">
-    <thead>
-    <tr>
-        
-        <th>Name</th>
-        
-
-        <th>Type</th>
-
-        
-
-        
-
-        <th class="last">Description</th>
-    </tr>
-    </thead>
-
-    <tbody>
-    
-
-        <tr>
-            
-                <td class="name"><code>htmlFiles</code></td>
-            
-
-            <td class="type">
-            
-                
-<span class="param-type">Record.&lt;string, string></span>
-
-
-            
-            </td>
-
-            
-
-            
-
-            <td class="description last">Map of file path → raw HTML string.</td>
-        </tr>
-
-    
-    </tbody>
-</table>
-
-
-
-
-
-
-<dl class="details">
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-    <dt class="tag-source">Source:</dt>
-    <dd class="tag-source"><ul class="dummy"><li>
-        <a href="index.js.html">index.js</a>, <a href="index.js.html#line71">line 71</a>
+        <a href="index.js.html">index.js</a>, <a href="index.js.html#line54">line 54</a>
     </li></ul></dd>
     
 
@@ -576,7 +281,7 @@
     
 
     
-    <h4 class="name" id=".render"><span class="type-signature">(static) </span>render<span class="signature">(shadowRoot, component)</span><span class="type-signature"></span></h4>
+    <h4 class="name" id=".render"><span class="type-signature">(static) </span>render<span class="signature">(shadowRoot, templateHtml, sheet)</span><span class="type-signature"></span></h4>
     
 
     
@@ -584,7 +289,7 @@
 
 
 <div class="description">
-    Render template and style into a shadow root.
+    Render a component's template and styles into a shadow root.The template is written directly via <code>innerHTML</code>. Styles are applied througha shared <code>CSSStyleSheet</code> (Constructable Stylesheets) so CSS is parsed onceper component type rather than once per element instance.
 </div>
 
 
@@ -643,13 +348,13 @@
 
         <tr>
             
-                <td class="name"><code>component</code></td>
+                <td class="name"><code>templateHtml</code></td>
             
 
             <td class="type">
             
                 
-<span class="param-type">Object</span>
+<span class="param-type">string</span>
 
 
             
@@ -659,7 +364,33 @@
 
             
 
-            <td class="description last"></td>
+            <td class="description last">Inner HTML to set on the shadow root.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>sheet</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">CSSStyleSheet</span>
+|
+
+<span class="param-type">null</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last">Pre-constructed stylesheet shared across all instances, or null.</td>
         </tr>
 
     
@@ -700,7 +431,7 @@
     
     <dt class="tag-source">Source:</dt>
     <dd class="tag-source"><ul class="dummy"><li>
-        <a href="index.js.html">index.js</a>, <a href="index.js.html#line60">line 60</a>
+        <a href="index.js.html">index.js</a>, <a href="index.js.html#line39">line 39</a>
     </li></ul></dd>
     
 
@@ -734,6 +465,176 @@
     
 
     
+        <h3 class="subsection-title">Type Definitions</h3>
+
+        
+                
+<h4 class="name" id="~SFCModule">SFCModule</h4>
+
+
+
+
+
+
+    <h5>Type:</h5>
+    <ul>
+        <li>
+            
+<span class="param-type">Object</span>
+
+
+        </li>
+    </ul>
+
+
+
+
+
+    <h5 class="subsection-title">Properties:</h5>
+
+    
+
+<table class="props">
+    <thead>
+    <tr>
+        
+        <th>Name</th>
+        
+
+        <th>Type</th>
+
+        
+
+        
+
+        <th class="last">Description</th>
+    </tr>
+    </thead>
+
+    <tbody>
+    
+
+        <tr>
+            
+                <td class="name"><code>templateHtml</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">string</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last">Inner HTML of the `<template>` tag, or `""`.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>styleText</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">string</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last">Inner text of the `<style>` tag, or `""`.</td>
+        </tr>
+
+    
+
+        <tr>
+            
+                <td class="name"><code>setup</code></td>
+            
+
+            <td class="type">
+            
+                
+<span class="param-type">function</span>
+
+
+            
+            </td>
+
+            
+
+            
+
+            <td class="description last">Pre-compiled setup function, or `null` when the component has no `<script>`.</td>
+        </tr>
+
+    
+    </tbody>
+</table>
+
+
+
+
+<dl class="details">
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+    <dt class="tag-source">Source:</dt>
+    <dd class="tag-source"><ul class="dummy"><li>
+        <a href="index.js.html">index.js</a>, <a href="index.js.html#line21">line 21</a>
+    </li></ul></dd>
+    
+
+    
+
+    
+
+    
+</dl>
+
+
+
+
+
+
+            
+    
 
     
 </article>
@@ -746,13 +647,13 @@
 </div>
 
 <nav>
-    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-web-components.html">web-components</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-vite-plugin-sfc.html">vite-plugin-sfc</a></li><li><a href="module-web-components.html">web-components</a></li></ul>
 </nav>
 
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.5</a> on Mon Apr 13 2026 23:06:14 GMT+0200 (Mitteleuropäische Sommerzeit)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.5</a> on Tue Apr 14 2026 14:20:59 GMT+0200 (Mitteleuropäische Sommerzeit)
 </footer>
 
 <script> prettyPrint(); </script>

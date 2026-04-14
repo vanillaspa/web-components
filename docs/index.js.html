@@ -29,86 +29,70 @@
             <pre class="prettyprint source linenums"><code>/**
  * @fileoverview Auto-registration of HTML Single File Components as custom elements.
  *
- * At build time, Vite's &lt;code>import.meta.glob&lt;/code> eagerly imports every &lt;code>.html&lt;/code> file
- * under &lt;code>src/components/&lt;/code> as a raw string. Each file is parsed and registered
- * as a &lt;code>customElements.define(...)&lt;/code> using the filename as the element tag name:
+ * At build time, the `sfcPlugin` Vite plugin transforms every `.html` file under
+ * `src/components/` into an ES module that exports `templateHtml`, `styleText`,
+ * and `setup`. `import.meta.glob` eagerly imports those real modules — no string
+ * evaluation at runtime, no `unsafe-eval` in Content-Security-Policy.
+ *
+ * The consuming app's entry point is responsible for calling `registerComponents`
+ * with its own `import.meta.glob` result, keeping this module free of side effects
+ * and fully tree-shakeable:
  *
  * &lt;pre>&lt;code>
- * src/components/foo/foo-bar.html          →  &amp;lt;foo-bar&amp;gt;
- * src/components/foo/foo-bar-baz-qux.html  →  &amp;lt;foo-bar-baz-qux&amp;gt;
+ * import { registerComponents } from '@vanillaspa/web-components';
+ * registerComponents(import.meta.glob('/src/components/**&amp;#47;*.html', { eager: true }));
  * &lt;/code>&lt;/pre>
- *
- * Each custom element uses an open &lt;code>ShadowDOM&lt;/code>. On &lt;code>connectedCallback&lt;/code>, the
- * element renders its &lt;code>&amp;lt;template&amp;gt;&lt;/code> and &lt;code>&amp;lt;style&amp;gt;&lt;/code>, then executes the
- * &lt;code>&amp;lt;script&amp;gt;&lt;/code> body as an &lt;code>AsyncFunction&lt;/code> with &lt;code>shadowDocument&lt;/code>
- * (the shadow root) passed directly as a parameter. No inline &lt;code>&amp;lt;script&amp;gt;&lt;/code>
- * elements are injected, so the app does not require &lt;code>'unsafe-inline'&lt;/code> in
- * Content-Security-Policy — only &lt;code>'unsafe-eval'&lt;/code> for the &lt;code>AsyncFunction&lt;/code>
- * constructor.
- *
- * On &lt;code>disconnectedCallback&lt;/code>, a &lt;code>component:disconnected&lt;/code> custom event is
- * dispatched on the element for @vanillaspa/event-bus auto-cleanup.
  *
  * @module web-components
  */
 
-/** @type {Record&lt;string, string>} */
-const htmlFiles = import.meta.glob('/src/components/**/*.html', { query: '?raw', import: 'default', eager: true });
-
-/** @type {AsyncFunctionConstructor} */
-const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-
-
 /**
- * Parse an SFC HTML string into its three fragments and a setup function.
- *
- * The &lt;code>&amp;lt;script&amp;gt;&lt;/code> body is compiled once per component type into an
- * &lt;code>AsyncFunction('shadowDocument', ...)&lt;/code>. Each instance calls it with its
- * own shadow root — no inline scripts, no global lookup.
- *
- * @param {string} html - Raw HTML content of the &lt;code>.html&lt;/code> file.
- * @returns {{ template: HTMLTemplateElement|null, style: HTMLStyleElement|null, setup: AsyncFunction|null }}
+ * @typedef {Object} SFCModule
+ * @property {string} templateHtml - Inner HTML of the `&lt;template>` tag, or `""`.
+ * @property {string} styleText - Inner text of the `&lt;style>` tag, or `""`.
+ * @property {function(ShadowRoot): Promise&lt;void>|null} setup - Pre-compiled setup function, or `null` when the component has no `&lt;script>`.
  */
-export function parseComponent(html) {
-    const fragment = document.createRange().createContextualFragment(html);
-    const scriptEl = fragment.querySelector("script");
-    return {
-        template: fragment.querySelector("template"),
-        style:    fragment.querySelector("style"),
-        setup:    scriptEl ? new AsyncFunction('shadowDocument', scriptEl.textContent) : null,
-    };
-}
 
 /**
- * Render template and style into a shadow root.
+ * Render a component's template and styles into a shadow root.
+ *
+ * The template is written directly via &lt;code>innerHTML&lt;/code>. Styles are applied through
+ * a shared &lt;code>CSSStyleSheet&lt;/code> (Constructable Stylesheets) so CSS is parsed once
+ * per component type rather than once per element instance.
  *
  * @param {ShadowRoot} shadowRoot
- * @param {{ template: HTMLTemplateElement|null, style: HTMLStyleElement|null }} component
+ * @param {string} templateHtml - Inner HTML to set on the shadow root.
+ * @param {CSSStyleSheet|null} sheet - Pre-constructed stylesheet shared across all instances, or null.
  */
-export function render(shadowRoot, component) {
-    shadowRoot.replaceChildren();
-    if (component.template) shadowRoot.appendChild(component.template.content.cloneNode(true));
-    if (component.style) shadowRoot.appendChild(component.style.cloneNode(true));
+export function render(shadowRoot, templateHtml, sheet) {
+    const t = document.createElement('template');
+    t.innerHTML = templateHtml;
+    shadowRoot.replaceChildren(t.content.cloneNode(true));
+    shadowRoot.adoptedStyleSheets = sheet ? [sheet] : [];
 }
 
 /**
- * Register all SFC HTML files as custom elements.
+ * Register all SFC modules as custom elements.
  *
- * @param {Record&lt;string, string>} htmlFiles - Map of file path → raw HTML string.
+ * For each component, a &lt;code>CSSStyleSheet&lt;/code> is constructed once and shared across
+ * all instances of that element via &lt;code>adoptedStyleSheets&lt;/code>.
+ *
+ * @param {Record&lt;string, SFCModule>} modules - Map of file path → SFC module.
  */
-export function registerComponents(htmlFiles) {
-    for (const [filePath, html] of Object.entries(htmlFiles)) {
-        const component = parseComponent(html);
-        // Absolute filePath from `import.meta.glob`. file-name is component-name
-        const componentName = filePath.split("/").pop().split('.')[0];
+export function registerComponents(modules) {
+    for (const [filePath, { templateHtml, styleText, setup }] of Object.entries(modules)) {
+        const sheet = styleText ? new CSSStyleSheet() : null;
+        sheet?.replaceSync(styleText);
+
+        const componentName = filePath.split('/').pop().split('.')[0];
         customElements.define(componentName, class extends HTMLElement {
             constructor() {
                 super();
-                this.attachShadow({ mode: "open" });
+                this.attachShadow({ mode: 'open' });
             }
             connectedCallback() {
-                render(this.shadowRoot, component);
-                component.setup?.(this.shadowRoot);
+                render(this.shadowRoot, templateHtml, sheet);
+                setup?.(this.shadowRoot);
             }
             disconnectedCallback() {
                 this.dispatchEvent(new CustomEvent('component:disconnected', { bubbles: false }));
@@ -116,8 +100,6 @@ export function registerComponents(htmlFiles) {
         });
     }
 }
-
-registerComponents(htmlFiles);
 </code></pre>
         </article>
     </section>
@@ -128,13 +110,13 @@ registerComponents(htmlFiles);
 </div>
 
 <nav>
-    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-web-components.html">web-components</a></li></ul>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-vite-plugin-sfc.html">vite-plugin-sfc</a></li><li><a href="module-web-components.html">web-components</a></li></ul>
 </nav>
 
 <br class="clear">
 
 <footer>
-    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.5</a> on Mon Apr 13 2026 23:06:14 GMT+0200 (Mitteleuropäische Sommerzeit)
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.5</a> on Tue Apr 14 2026 14:20:59 GMT+0200 (Mitteleuropäische Sommerzeit)
 </footer>
 
 <script> prettyPrint(); </script>

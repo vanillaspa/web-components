@@ -1,54 +1,60 @@
 import { describe, it, expect } from 'vitest';
-import { parseComponent, registerComponents } from './index.js';
+import { render, registerComponents } from './index.js';
 
 // ---------------------------------------------------------------------------
-// parseComponent — null-handling (own logic, not platform behaviour)
+// render — null-handling
 // ---------------------------------------------------------------------------
 
-describe('parseComponent', () => {
-    it('returns null for template when no <template> tag is present', () => {
-        const { template } = parseComponent('<style></style><script></script>');
+describe('render', () => {
+    it('renders nothing when templateHtml is empty and sheet is null', () => {
+        const shadowRoot = document.createElement('div').attachShadow({ mode: 'open' });
+        render(shadowRoot, '', null);
 
-        expect(template).toBeNull();
+        expect(shadowRoot.childNodes.length).toBe(0);
     });
 
-    it('returns null for style when no <style> tag is present', () => {
-        const { style } = parseComponent('<template></template><script></script>');
+    it('applies the adopted stylesheet when a sheet is provided', () => {
+        const shadowRoot = document.createElement('div').attachShadow({ mode: 'open' });
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync('div { color: red; }');
+        render(shadowRoot, '', sheet);
 
-        expect(style).toBeNull();
-    });
-
-    it('returns null for setup when no <script> tag is present', () => {
-        const { setup } = parseComponent('<template></template>');
-
-        expect(setup).toBeNull();
+        expect(shadowRoot.adoptedStyleSheets).toContain(sheet);
     });
 });
 
 // ---------------------------------------------------------------------------
-// registerComponents — tag-name derivation (own logic)
+// registerComponents — tag-name derivation
 // ---------------------------------------------------------------------------
 
 describe('registerComponents', () => {
     it('derives the tag name from the filename stem', () => {
-        registerComponents({ '/src/components/my-widget.html': '<template></template>' });
+        registerComponents({
+            '/src/components/my-widget.html': { templateHtml: '', styleText: '', setup: null },
+        });
 
         expect(customElements.get('my-widget')).toBeDefined();
     });
 
     it('derives the tag name correctly from a nested path', () => {
-        registerComponents({ '/src/components/ui/nested/my-nested-comp.html': '<template></template>' });
+        registerComponents({
+            '/src/components/ui/nested/my-nested-comp.html': { templateHtml: '', styleText: '', setup: null },
+        });
 
         expect(customElements.get('my-nested-comp')).toBeDefined();
     });
 
-    it('passes the shadow root as shadowDocument to the setup script', async () => {
+    it('passes the shadow root as shadowDocument to the setup function', async () => {
         registerComponents({
-            '/src/components/shadow-doc-test.html': `
-                <template></template>
-                <script>shadowDocument.host.setAttribute('data-shadow', 'true');</script>
-            `,
+            '/src/components/shadow-doc-test.html': {
+                templateHtml: '',
+                styleText: '',
+                setup: async (shadowDocument) => {
+                    shadowDocument.host.setAttribute('data-shadow', 'true');
+                },
+            },
         });
+
         const el = document.createElement('shadow-doc-test');
         document.body.appendChild(el);
         await Promise.resolve();
