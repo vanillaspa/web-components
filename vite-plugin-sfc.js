@@ -1,12 +1,11 @@
 /**
- * @fileoverview Vite plugin that transforms SFC <code>.html</code> files into real ES modules at build time.
+ * @fileoverview Vite plugin that transforms <code>.sfc</code> Single File Component files into real ES modules at build time.
  *
  * Eliminates runtime string evaluation (<code>AsyncFunction</code> / <code>unsafe-eval</code>) by compiling each
  * component's <code>&lt;template&gt;</code>, <code>&lt;style&gt;</code>, and <code>&lt;script&gt;</code>
- * into a standard ES module during the Vite transform phase. The consuming app requires no special
- * Content-Security-Policy directive.
+ * into a standard ES module. The consuming app requires no special Content-Security-Policy directive.
  *
- * Each transformed <code>.html</code> module exports:
+ * Each transformed module exports:
  * <ul>
  *   <li><code>templateHtml</code> — inner HTML of the <code>&lt;template&gt;</code> tag, or <code>""</code>.</li>
  *   <li><code>styleText</code>    — inner text of the <code>&lt;style&gt;</code> tag, or <code>""</code>.</li>
@@ -20,18 +19,15 @@
  */
 
 /**
- * Returns a Vite plugin that compiles `.html` SFC files into ES modules.
+ * Returns a Vite plugin that compiles <code>.sfc</code> files into ES modules.
  *
  * @returns {Object} A Vite plugin object — see {@link https://vite.dev/guide/api-plugin Vite Plugin API}.
  */
 export function sfcPlugin() {
     return {
         name: 'vite-sfc',
-        enforce: 'pre',
         transform(src, id) {
-            if (id.includes('\0') || !id.endsWith('.html') || id.includes('?')) return;
-            // Skip full HTML documents (e.g. the app entry-point index.html)
-            if (/<(!DOCTYPE|html)[\s>]/i.test(src)) return;
+            if (id.includes('\0') || !id.endsWith('.sfc') || id.includes('?')) return;
 
             const templateMatch = src.match(/<template>([\s\S]*?)<\/template>/);
             const styleMatch    = src.match(/<style>([\s\S]*?)<\/style>/);

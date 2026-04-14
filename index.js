@@ -1,7 +1,7 @@
 /**
  * @fileoverview Auto-registration of HTML Single File Components as custom elements.
  *
- * At build time, the `sfcPlugin` Vite plugin transforms every `.html` file under
+ * At build time, the `sfcPlugin` Vite plugin transforms every `.sfc` file under
  * `src/components/` into an ES module that exports `templateHtml`, `styleText`,
  * and `setup`. `import.meta.glob` eagerly imports those real modules — no string
  * evaluation at runtime, no `unsafe-eval` in Content-Security-Policy.
@@ -12,7 +12,7 @@
  *
  * <pre><code>
  * import { registerComponents } from '@vanillaspa/web-components';
- * registerComponents(import.meta.glob('/src/components/**&#47;*.html', { eager: true }));
+ * registerComponents(import.meta.glob('/src/components/**&#47;*.sfc', { eager: true }));
  * </code></pre>
  *
  * @module web-components
