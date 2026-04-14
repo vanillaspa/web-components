@@ -5,7 +5,7 @@
     },
     "description": "This is a lifecycle-implementation of a CustomElements registry for standards-conforming WebComponents.",
     "devDependencies": {
-        "happy-dom": "^20.8.9",
+        "happy-dom": "^20.9.0",
         "vitest": "^4.1.4"
     },
     "engines": {
@@ -32,7 +32,7 @@
     ],
     "license": "Unlicense",
     "peerDependencies": {
-        "vite": "^5.0.0 || ^6.0.0"
+        "vite": "latest"
     },
     "name": "@vanillaspa/web-components",
     "publishConfig": {
@@ -46,5 +46,5 @@
         "test": "vitest"
     },
     "type": "module",
-    "version": "2.2.1"
+    "version": "2.2.2"
 }
