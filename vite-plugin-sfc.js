@@ -29,6 +29,8 @@ export function sfcPlugin() {
         name: 'vite-sfc',
         transform(src, id) {
             if (id.includes('\0') || !id.endsWith('.html') || id.includes('?')) return;
+            // Skip full HTML documents (e.g. the app entry-point index.html)
+            if (/<(!DOCTYPE|html)[\s>]/i.test(src)) return;
 
             const templateMatch = src.match(/<template>([\s\S]*?)<\/template>/);
             const styleMatch    = src.match(/<style>([\s\S]*?)<\/style>/);
