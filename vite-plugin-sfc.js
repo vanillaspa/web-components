@@ -27,6 +27,7 @@
 export function sfcPlugin() {
     return {
         name: 'vite-sfc',
+        enforce: 'pre',
         transform(src, id) {
             if (id.includes('\0') || !id.endsWith('.html') || id.includes('?')) return;
             // Skip full HTML documents (e.g. the app entry-point index.html)
