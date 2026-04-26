@@ -36,11 +36,11 @@
  * @param {string} templateHtml - Inner HTML to set on the shadow root.
  * @param {CSSStyleSheet|null} sheet - Pre-constructed stylesheet shared across all instances, or null.
  */
-export function render(shadowRoot, templateHtml, sheet) {
+export function render(shadowRoot, templateHtml, ...sheets) {
     const t = document.createElement('template');
     t.innerHTML = templateHtml;
     shadowRoot.replaceChildren(t.content.cloneNode(true));
-    shadowRoot.adoptedStyleSheets = sheet ? [sheet] : [];
+    shadowRoot.adoptedStyleSheets = sheets.filter(Boolean);
 }
 
 /**
@@ -51,7 +51,7 @@ export function render(shadowRoot, templateHtml, sheet) {
  *
  * @param {Record<string, SFCModule>} modules - Map of file path → SFC module.
  */
-export function registerComponents(modules) {
+export function registerComponents(modules, ...globalSheets) {
     for (const [filePath, { templateHtml, styleText, setup }] of Object.entries(modules)) {
         const sheet = styleText ? new CSSStyleSheet() : null;
         sheet?.replaceSync(styleText);
@@ -63,7 +63,7 @@ export function registerComponents(modules) {
                 this.attachShadow({ mode: 'open' });
             }
             connectedCallback() {
-                render(this.shadowRoot, templateHtml, sheet);
+                render(this.shadowRoot, templateHtml, ...globalSheets, sheet);
                 setup?.(this.shadowRoot);
             }
             disconnectedCallback() {
