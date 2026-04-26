@@ -11,7 +11,7 @@ Write a `.sfc` file. Get a custom element. That's it.
 Each `.sfc` file under `src/components/` is a **Single File Component** containing up to three top-level tags:
 
 ```html
-<!-- src/components/app/app-card.html -->
+<!-- src/components/app/app-card.sfc -->
 <template>
     <article>
         <slot></slot>
@@ -121,4 +121,4 @@ src/
 
 ## API reference
 
-Full technical documentation: [module-web-components](https://vanillaspa.github.io/web-components/module-web-components.html)
+Full technical spec: [module-web-components](https://github.com/vanillaspa/web-components/index.js)
