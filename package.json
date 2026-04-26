@@ -4,10 +4,6 @@
         "url": "https://github.com/vanillaspa/web-components/issues"
     },
     "description": "This is a lifecycle-implementation of a CustomElements registry for standards-conforming WebComponents.",
-    "devDependencies": {
-        "happy-dom": "^20.9.0",
-        "vitest": "^4.1.4"
-    },
     "engines": {
         "node": ">=18.0.0"
     },
@@ -42,9 +38,6 @@
         "type": "git",
         "url": "git+https://github.com/vanillaspa/web-components.git"
     },
-    "scripts": {
-        "test": "vitest"
-    },
     "type": "module",
-    "version": "2.4.1"
+    "version": "2.4.2"
 }
