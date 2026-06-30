@@ -4,16 +4,17 @@
         "url": "https://github.com/vanillaspa/web-components/issues"
     },
     "description": "This is a lifecycle-implementation of a CustomElements registry for standards-conforming WebComponents.",
+    "dependencies": {
+        "dompurify": "^3.4.11"
+    },
     "engines": {
         "node": ">=18.0.0"
     },
     "exports": {
-        ".": "./index.js",
-        "./vite-plugin-sfc": "./vite-plugin-sfc.js"
+        ".": "./index.js"
     },
     "files": [
-        "index.js",
-        "vite-plugin-sfc.js"
+        "index.js"
     ],
     "homepage": "https://github.com/vanillaspa/web-components#readme",
     "keywords": [
@@ -39,5 +40,5 @@
         "url": "git+https://github.com/vanillaspa/web-components.git"
     },
     "type": "module",
-    "version": "2.4.3"
+    "version": "2.5.1"
 }

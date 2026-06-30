@@ -1,3 +1,5 @@
+import DOMPurify from 'dompurify';
+
 /**
  * @fileoverview Auto-registration of HTML Single File Components as custom elements.
  *
@@ -25,6 +27,13 @@
  * @property {function(ShadowRoot): Promise<void>|null} setup - Pre-compiled setup function, or `null` when the component has no `<script>`.
  */
 
+const sfcPolicy = window.trustedTypes?.createPolicy('sfc-policy', {
+    createHTML: (input) => DOMPurify.sanitize(input),
+    createScript: (input) => input
+}) || { // fallback for browsers without Trusted Types
+    createHTML: (input) => DOMPurify.sanitize(input),
+    createScript: (input) => input
+};
 /**
  * Render a component's template and styles into a shadow root.
  *
@@ -37,9 +46,9 @@
  * @param {CSSStyleSheet|null} sheet - Pre-constructed stylesheet shared across all instances, or null.
  */
 export function render(shadowRoot, templateHtml, ...sheets) {
-    const t = document.createElement('template');
-    t.innerHTML = templateHtml;
-    shadowRoot.replaceChildren(t.content.cloneNode(true));
+    const template = document.createElement('template');
+    template.innerHTML = templateHtml;
+    shadowRoot.replaceChildren(template.content.cloneNode(true));
     shadowRoot.adoptedStyleSheets = sheets.filter(Boolean);
 }
 
@@ -49,10 +58,11 @@ export function render(shadowRoot, templateHtml, ...sheets) {
  * For each component, a <code>CSSStyleSheet</code> is constructed once and shared across
  * all instances of that element via <code>adoptedStyleSheets</code>.
  *
- * @param {Record<string, SFCModule>} modules - Map of file path → SFC module.
+ * @param {Record<string, SFCModule>} sfcs - Map of file path → SFC module.
  */
-export function registerComponents(modules, ...globalSheets) {
-    for (const [filePath, { templateHtml, styleText, setup }] of Object.entries(modules)) {
+export function registerComponents(rawComponents, ...globalSheets) {
+    for (const [filePath, rawContent] of Object.entries(rawComponents)) {
+        const { templateHtml, styleText, setup } = modularize(rawContent);
         const sheet = styleText ? new CSSStyleSheet() : null;
         sheet?.replaceSync(styleText);
 
@@ -71,4 +81,16 @@ export function registerComponents(modules, ...globalSheets) {
             }
         });
     }
+}
+
+function modularize(rawContent) {
+    const templateHtml = rawContent.match(/<template>([\s\S]*?)<\/template>/)?.[1].trim() || '';
+    const styleText = rawContent.match(/<style>([\s\S]*?)<\/style>/)?.[1].trim() || '';
+    const scriptText = rawContent.match(/<script>([\s\S]*?)<\/script>/)?.[1]?.trim() || '';
+
+    return {
+        'templateHtml': `${JSON.stringify(templateHtml)};`,
+        'styleText': `${JSON.stringify(styleText)};`,
+        'setup': `async function setup(shadowDocument) {\n${scriptText}\n}`
+    };
 }
