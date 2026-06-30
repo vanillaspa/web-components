@@ -84,9 +84,11 @@ export function registerComponents(rawComponents, ...globalSheets) {
 }
 
 function modularize(rawContent) {
-    const templateHtml = rawContent.match(/<template>([\s\S]*?)<\/template>/)?.[1].trim() || '';
-    const styleText = rawContent.match(/<style>([\s\S]*?)<\/style>/)?.[1].trim() || '';
-    const scriptText = rawContent.match(/<script>([\s\S]*?)<\/script>/)?.[1]?.trim() || '';
+    const contentString = typeof rawContent === 'string' ? rawContent : rawContent.default;
+
+    const templateHtml = contentString.match(/<template>([\s\S]*?)<\/template>/)?.[1].trim() || '';
+    const styleText = contentString.match(/<style>([\s\S]*?)<\/style>/)?.[1].trim() || '';
+    const scriptText = contentString.match(/<script>([\s\S]*?)<\/script>/)?.[1]?.trim() || '';
 
     return {
         'templateHtml': `${JSON.stringify(templateHtml)};`,
