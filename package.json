@@ -4,9 +4,6 @@
         "url": "https://github.com/vanillaspa/web-components/issues"
     },
     "description": "This is a lifecycle-implementation of a CustomElements registry for standards-conforming WebComponents.",
-    "dependencies": {
-        "dompurify": "^3.4.11"
-    },
     "engines": {
         "node": ">=18.0.0"
     },
@@ -40,5 +37,5 @@
         "url": "git+https://github.com/vanillaspa/web-components.git"
     },
     "type": "module",
-    "version": "2.6.0"
+    "version": "2.6.1"
 }

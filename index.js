@@ -1,5 +1,3 @@
-import DOMPurify from 'dompurify';
-
 /**
  * @fileoverview Auto-registration of HTML Single File Components as custom elements.
  *
