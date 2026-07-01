@@ -3,7 +3,7 @@
     "bugs": {
         "url": "https://github.com/vanillaspa/web-components/issues"
     },
-    "description": "This is a lifecycle-implementation of a CustomElements registry for standards-conforming WebComponents.",
+    "description": "This is a lifecycle-implementation of CustomElements for standards-conforming WebComponents in <100LOC.",
     "engines": {
         "node": ">=18.0.0"
     },
@@ -37,5 +37,5 @@
         "url": "git+https://github.com/vanillaspa/web-components.git"
     },
     "type": "module",
-    "version": "2.6.2"
+    "version": "2.7.1"
 }

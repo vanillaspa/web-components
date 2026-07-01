@@ -1,28 +1,16 @@
 /**
- * @fileoverview Auto-registration of HTML Single File Components as custom elements.
+ * @fileoverview Register raw `.sfc` files as native custom elements.
  *
- * At build time, the `sfcPlugin` Vite plugin transforms every `.sfc` file under
- * `src/components/` into an ES module that exports `templateHtml`, `styleText`,
- * and `setup`. `import.meta.glob` eagerly imports those real modules — no string
- * evaluation at runtime, no `unsafe-eval` in Content-Security-Policy.
- *
- * The consuming app's entry point is responsible for calling `registerComponents`
- * with its own `import.meta.glob` result, keeping this module free of side effects
- * and fully tree-shakeable:
- *
- * <pre><code>
- * import { registerComponents } from '@vanillaspa/web-components';
- * registerComponents(import.meta.glob('/src/components/**&#47;*.sfc', { eager: true }));
- * </code></pre>
+ * Each `.sfc` file is imported as raw text through `import.meta.glob(..., { eager: true, query: '?raw' })`.
+ * The component's `<template>`, `<style>` and `<script>` sections are parsed and mounted into an open shadow root.
+ * The `<script>` body is executed with the shadow root as `shadowDocument`.
  *
  * @module web-components
  */
 
 /**
  * @typedef {Object} SFCModule
- * @property {string} templateHtml - Inner HTML of the `<template>` tag, or `""`.
- * @property {string} styleText - Inner text of the `<style>` tag, or `""`.
- * @property {function(ShadowRoot): Promise<void>|null} setup - Pre-compiled setup function, or `null` when the component has no `<script>`.
+ * @property {string|{default:string}} default - Raw `.sfc` content or a module exposing it through `default`.
  */
 
 const sfcPolicy = window.trustedTypes?.createPolicy('sfc-policy', {
@@ -36,33 +24,39 @@ const sfcPolicy = window.trustedTypes?.createPolicy('sfc-policy', {
 /**
  * Render a component's template and styles into a shadow root.
  *
- * The template is written directly via <code>innerHTML</code>. Styles are applied through
- * a shared <code>CSSStyleSheet</code> (Constructable Stylesheets) so CSS is parsed once
- * per component type rather than once per element instance.
+ * The template is cloned from a pre-built `HTMLTemplateElement` and the styles are
+ * applied through `adoptedStyleSheets`. The setup function receives the shadow root
+ * as its only argument.
  *
- * @param {ShadowRoot} shadowRoot
- * @param {string} templateHtml - Inner HTML to set on the shadow root.
- * @param {CSSStyleSheet|null} sheet - Pre-constructed stylesheet shared across all instances, or null.
+ * @param {ShadowRoot} shadowRoot - The component's open shadow root.
+ * @param {HTMLTemplateElement} template - Pre-built template containing the component markup.
+ * @param {Function} setupFunction - Function that receives `shadowDocument` and runs the component script.
+ * @param {...(CSSStyleSheet|undefined)} styleSheets - Optional global or component stylesheets to adopt.
+ * @returns {void}
  */
-export function render(shadowRoot, template, setupFunction, ...sheets) {
+export function render(shadowRoot, template, setupFunction, ...styleSheets) {
     shadowRoot.replaceChildren(template.content.cloneNode(true));
-    shadowRoot.adoptedStyleSheets = sheets.filter(Boolean);
+    shadowRoot.adoptedStyleSheets = styleSheets.filter(Boolean);
     setupFunction(shadowRoot);
 }
 
 /**
  * Register all SFC modules as custom elements.
  *
- * For each component, a <code>CSSStyleSheet</code> is constructed once and shared across
- * all instances of that element via <code>adoptedStyleSheets</code>.
+ * For each `.sfc` entry, the template, style and script sections are parsed,
+ * a shared `CSSStyleSheet` is created for the component style, and a custom
+ * element is registered using the filename stem as the tag name.
  *
- * @param {Record<string, SFCModule>} sfcs - Map of file path → SFC module.
+ * @param {Record<string, SFCModule>} rawComponents - Map of file path → raw `.sfc` content.
+ * @param {...CSSStyleSheet} globalSheets - Optional global stylesheets to apply to every component instance.
+ * @returns {void}
  */
 export function registerComponents(rawComponents, ...globalSheets) {
     for (const [filePath, rawContent] of Object.entries(rawComponents)) {
-        const templateString = rawContent.default.match(/<template>([\s\S]*?)<\/template>/)?.[1] || '';
-        const styleString = rawContent.default.match(/<style>([\s\S]*?)<\/style>/)?.[1] || '';
-        const scriptString = rawContent.default.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+        const contentString = typeof rawContent === 'string' ? rawContent : rawContent.default ?? '';
+        const templateString = contentString.match(/<template>([\s\S]*?)<\/template>/)?.[1] || '';
+        const styleString = contentString.match(/<style>([\s\S]*?)<\/style>/)?.[1] || '';
+        const scriptString = contentString.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
 
         const template = document.createElement('template');
         template.innerHTML = sfcPolicy.createHTML(templateString);
@@ -73,8 +67,8 @@ export function registerComponents(rawComponents, ...globalSheets) {
         const trustedScript = sfcPolicy.createScript(scriptString);
         const asyncSetupFunction = new Function(trustedScript)();
 
-        const componentName = filePath.split('/').pop().split('.')[0];
-        customElements.define(componentName, class extends HTMLElement {
+        const componentName = filePath.split('/').pop().split('.')[0]; // https://html.spec.whatwg.org/multipage/custom-elements.html#valid-custom-element-name
+        customElements.define(componentName, class extends HTMLElement { // https://developer.mozilla.org/en-US/docs/Web/API/Web_components/Using_custom_elements#custom_element_lifecycle_callbacks
             constructor() {
                 super();
                 this.attachShadow({ mode: 'open' });
@@ -88,4 +82,3 @@ export function registerComponents(rawComponents, ...globalSheets) {
         });
     }
 }
-
