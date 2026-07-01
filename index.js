@@ -44,16 +44,10 @@ const sfcPolicy = window.trustedTypes?.createPolicy('sfc-policy', {
  * @param {string} templateHtml - Inner HTML to set on the shadow root.
  * @param {CSSStyleSheet|null} sheet - Pre-constructed stylesheet shared across all instances, or null.
  */
-export function render(shadowRoot, templateString, scriptString, ...sheets) {
-    const template = document.createElement('template');
-    template.innerHTML = sfcPolicy.createHTML(templateString);
+export function render(shadowRoot, template, setupFunction, ...sheets) {
     shadowRoot.replaceChildren(template.content.cloneNode(true));
-
     shadowRoot.adoptedStyleSheets = sheets.filter(Boolean);
-
-    const trustedScript = sfcPolicy.createScript(scriptString);
-    const asyncSetupFn = new Function(trustedScript)();
-    asyncSetupFn(shadowRoot);
+    setupFunction(shadowRoot);
 }
 
 /**
@@ -70,8 +64,14 @@ export function registerComponents(rawComponents, ...globalSheets) {
         const styleString = rawContent.default.match(/<style>([\s\S]*?)<\/style>/)?.[1] || '';
         const scriptString = rawContent.default.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
 
+        const template = document.createElement('template');
+        template.innerHTML = sfcPolicy.createHTML(templateString);
+
         const sheet = new CSSStyleSheet();
         sheet.replaceSync(styleString);
+
+        const trustedScript = sfcPolicy.createScript(scriptString);
+        const asyncSetupFunction = new Function(trustedScript)();
 
         const componentName = filePath.split('/').pop().split('.')[0];
         customElements.define(componentName, class extends HTMLElement {
@@ -80,7 +80,7 @@ export function registerComponents(rawComponents, ...globalSheets) {
                 this.attachShadow({ mode: 'open' });
             }
             connectedCallback() {
-                render(this.shadowRoot, templateString, scriptString, ...globalSheets, sheet);
+                render(this.shadowRoot, template, asyncSetupFunction, ...globalSheets, sheet);
             }
             disconnectedCallback() {
                 this.dispatchEvent(new CustomEvent('component:disconnected', { bubbles: false }));
