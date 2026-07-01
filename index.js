@@ -28,12 +28,13 @@ import DOMPurify from 'dompurify';
  */
 
 const sfcPolicy = window.trustedTypes?.createPolicy('sfc-policy', {
-    createHTML: (input) => DOMPurify.sanitize(input),
-    createScript: (input) => input
+    createHTML: (input) => input,
+    createScript: (input) => `return (async function setup(shadowDocument) {${input}})`
 }) || { // fallback for browsers without Trusted Types
-    createHTML: (input) => DOMPurify.sanitize(input),
-    createScript: (input) => input
+    createHTML: (input) => input,
+    createScript: (input) => `return (async function setup(shadowDocument) {${input}})`
 };
+
 /**
  * Render a component's template and styles into a shadow root.
  *
@@ -45,11 +46,16 @@ const sfcPolicy = window.trustedTypes?.createPolicy('sfc-policy', {
  * @param {string} templateHtml - Inner HTML to set on the shadow root.
  * @param {CSSStyleSheet|null} sheet - Pre-constructed stylesheet shared across all instances, or null.
  */
-export function render(shadowRoot, templateHtml, ...sheets) {
+export function render(shadowRoot, templateString, scriptString, ...sheets) {
     const template = document.createElement('template');
-    template.innerHTML = templateHtml;
+    template.innerHTML = sfcPolicy.createHTML(templateString);
     shadowRoot.replaceChildren(template.content.cloneNode(true));
+
     shadowRoot.adoptedStyleSheets = sheets.filter(Boolean);
+
+    const trustedScript = sfcPolicy.createScript(scriptString);
+    const asyncSetupFn = new Function(trustedScript)();
+    asyncSetupFn(shadowRoot);
 }
 
 /**
@@ -62,9 +68,12 @@ export function render(shadowRoot, templateHtml, ...sheets) {
  */
 export function registerComponents(rawComponents, ...globalSheets) {
     for (const [filePath, rawContent] of Object.entries(rawComponents)) {
-        const { templateHtml, styleText, setup } = modularize(rawContent);
-        const sheet = styleText ? new CSSStyleSheet() : null;
-        sheet?.replaceSync(styleText);
+        const templateString = rawContent.default.match(/<template>([\s\S]*?)<\/template>/)?.[1] || '';
+        const styleString = rawContent.default.match(/<style>([\s\S]*?)<\/style>/)?.[1] || '';
+        const scriptString = rawContent.default.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync(styleString);
 
         const componentName = filePath.split('/').pop().split('.')[0];
         customElements.define(componentName, class extends HTMLElement {
@@ -73,8 +82,7 @@ export function registerComponents(rawComponents, ...globalSheets) {
                 this.attachShadow({ mode: 'open' });
             }
             connectedCallback() {
-                render(this.shadowRoot, templateHtml, ...globalSheets, sheet);
-                setup?.(this.shadowRoot);
+                render(this.shadowRoot, templateString, scriptString, ...globalSheets, sheet);
             }
             disconnectedCallback() {
                 this.dispatchEvent(new CustomEvent('component:disconnected', { bubbles: false }));
@@ -83,16 +91,3 @@ export function registerComponents(rawComponents, ...globalSheets) {
     }
 }
 
-function modularize(rawContent) {
-    const contentString = typeof rawContent === 'string' ? rawContent : rawContent.default;
-
-    const templateHtml = contentString.match(/<template>([\s\S]*?)<\/template>/)?.[1].trim() || '';
-    const styleText = contentString.match(/<style>([\s\S]*?)<\/style>/)?.[1].trim() || '';
-    const scriptText = contentString.match(/<script>([\s\S]*?)<\/script>/)?.[1]?.trim() || '';
-
-    return {
-        'templateHtml': `${JSON.stringify(templateHtml)};`,
-        'styleText': `${JSON.stringify(styleText)};`,
-        'setup': `async function setup(shadowDocument) {\n${scriptText}\n}`
-    };
-}
