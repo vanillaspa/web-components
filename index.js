@@ -13,6 +13,13 @@
  * @property {string|{default:string}} default - Raw `.sfc` content or a module exposing it through `default`.
  */
 
+/**
+ * Trusted Types policy used to preserve SFC markup and wrap component scripts.
+ *
+ * The policy returns the raw template HTML unchanged and turns the `<script>`
+ * body into an async setup function that the runtime can execute later.
+ * @type {{createHTML: function(string): string, createScript: function(string): string}}
+ */
 const sfcPolicy = window.trustedTypes?.createPolicy('sfc-policy', {
     createHTML: (input) => input,
     createScript: (input) => `return (async function setup(shadowDocument) {${input}})`
