@@ -14,21 +14,6 @@
  */
 
 /**
- * Trusted Types policy used to preserve SFC markup and wrap component scripts.
- *
- * The policy returns the raw template HTML unchanged and turns the `<script>`
- * body into an async setup function that the runtime can execute later.
- * @type {{createHTML: function(string): string, createScript: function(string): string}}
- */
-const sfcPolicy = window.trustedTypes?.createPolicy('sfc-policy', {
-    createHTML: (input) => input,
-    createScript: (input) => `return (async function setup(shadowDocument) {${input}})`
-}) || { // fallback for browsers without Trusted Types
-    createHTML: (input) => input,
-    createScript: (input) => `return (async function setup(shadowDocument) {${input}})`
-};
-
-/**
  * Render a component's template and styles into a shadow root.
  *
  * The template is cloned from a pre-built `HTMLTemplateElement` and the styles are
@@ -44,7 +29,10 @@ const sfcPolicy = window.trustedTypes?.createPolicy('sfc-policy', {
 export function render(shadowRoot, template, setupFunction, ...styleSheets) {
     shadowRoot.replaceChildren(template.content.cloneNode(true));
     shadowRoot.adoptedStyleSheets = styleSheets.filter(Boolean);
-    setupFunction(shadowRoot);
+    const maybePromise = setupFunction(shadowRoot);
+    if (maybePromise && typeof maybePromise.then === 'function') {
+        maybePromise.catch(err => console.error('component setup() rejected', err));
+    }
 }
 
 /**
@@ -58,34 +46,87 @@ export function render(shadowRoot, template, setupFunction, ...styleSheets) {
  * @param {...CSSStyleSheet} globalSheets - Optional global stylesheets to apply to every component instance.
  * @returns {void}
  */
-export function registerComponents(rawComponents, ...globalSheets) {
-    for (const [filePath, rawContent] of Object.entries(rawComponents)) {
+export async function registerComponents(rawComponents, ...globalSheets) {
+    const tasks = Object.entries(rawComponents || {}).map(([filePath, rawContent]) => (async () => {
+        const componentName = filePath.split('/').pop().split('.')[0];
+        try {
+            if (!componentName || !componentName.includes('-')) {
+                throw new Error(`invalid component name derived from ${filePath}, must contain a hyphen`); // https://html.spec.whatwg.org/multipage/custom-elements.html#valid-custom-element-name
+            }
+        } catch (err) {
+            console.error(`failed deriving componentName for ${filePath}`, err);
+            return { filePath, status: 'name-derive-failed', error: err };
+        }
+
+        if (customElements.get(componentName)) { // the loser reports define-failed, not already-defined
+            console.warn(`custom element ${componentName} already defined, skipping registration for ${filePath}`);
+            return { filePath, status: 'already-defined', error: null };
+        }
+
         const contentString = typeof rawContent === 'string' ? rawContent : rawContent.default ?? '';
-        const templateString = contentString.match(/<template>([\s\S]*?)<\/template>/)?.[1] || '';
-        const styleString = contentString.match(/<style>([\s\S]*?)<\/style>/)?.[1] || '';
-        const scriptString = contentString.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
 
-        const template = document.createElement('template');
-        template.innerHTML = sfcPolicy.createHTML(templateString);
+        let sfc;
+        try {
+            sfc = new DOMParser().parseFromString(contentString, 'text/html');
+        } catch (err) {
+            console.error(`failed parsing SFC ${filePath}`, err);
+            return { filePath, status: 'parse-failed', error: err };
+        }
 
-        const sheet = new CSSStyleSheet();
-        sheet.replaceSync(styleString);
+        const template = sfc.querySelector('template') || document.createElement('template');
+        const style = sfc.querySelector('style') || document.createElement('style');
+        const script = sfc.querySelector('script') || document.createElement('script');
+        const asyncWrapper = `export async function setup(shadowDocument) {${script.textContent}}`;
+        const blob = new Blob([asyncWrapper], { type: 'text/javascript' });
+        const scriptUrl = URL.createObjectURL(blob);
 
-        const trustedScript = sfcPolicy.createScript(scriptString);
-        const asyncSetupFunction = new Function(trustedScript)();
+        let module;
+        try {
+            module = await import(scriptUrl);
+        } catch (err) {
+            console.error(`failed importing component script for ${filePath}`, err);
+            return { filePath, status: 'import-failed', error: err };
+        } finally {
+            try { URL.revokeObjectURL(scriptUrl); } catch (e) { /* ignore. If component authoring DX matters, consider deferring revocation until component teardown, or accept the tradeoff explicitly. */ }
+        }
 
-        const componentName = filePath.split('/').pop().split('.')[0]; // https://html.spec.whatwg.org/multipage/custom-elements.html#valid-custom-element-name
-        customElements.define(componentName, class extends HTMLElement { // https://developer.mozilla.org/en-US/docs/Web/API/Web_components/Using_custom_elements#custom_element_lifecycle_callbacks
-            constructor() {
-                super();
-                this.attachShadow({ mode: 'open' });
-            }
-            connectedCallback() {
-                render(this.shadowRoot, template, asyncSetupFunction, ...globalSheets, sheet);
-            }
-            disconnectedCallback() {
-                this.dispatchEvent(new CustomEvent('component:disconnected', { bubbles: false }));
-            }
-        });
+        let sheet;
+        try {
+            sheet = new CSSStyleSheet();
+            sheet.replaceSync(style.textContent);
+        } catch (err) {
+            console.error(`failed creating stylesheet for ${filePath}`, err);
+            return { filePath, status: 'style-failed', error: err };
+        }
+
+        try {
+            customElements.define(componentName, class extends HTMLElement { // https://developer.mozilla.org/en-US/docs/Web/API/Web_components/Using_custom_elements#custom_element_lifecycle_callbacks
+                constructor() {
+                    super();
+                    this.attachShadow({ mode: 'open' });
+                }
+                connectedCallback() {
+                    render(this.shadowRoot, template, module.setup, ...globalSheets, sheet);
+                }
+                disconnectedCallback() {
+                    this.dispatchEvent(new CustomEvent('component:disconnected', { bubbles: false }));
+                }
+            });
+        } catch (err) {
+            console.error(`failed registering custom element for ${filePath}`, err);
+            return { filePath, status: 'define-failed', error: err };
+        }
+        return { filePath, status: 'ok' }
+    })());
+
+    const results = await Promise.allSettled(tasks);
+    for (const r of results) { // Log summary of failures (if any)
+        if (r.status === 'fulfilled' && r.value && r.value.status !== 'ok') { // Returning {filePath, status: 'ok'} uniformly would make the Promise.allSettled result array actually inspectable/loggable as a full registration report (useful for a dev-mode "N/M components registered" banner), rather than only surfacing failures.
+            console.warn('component registration result:', r.value);
+        }
+        else if (r.status === 'rejected') {
+            console.error('component registration task rejected', r.reason);
+        }
     }
+    return results;
 }
