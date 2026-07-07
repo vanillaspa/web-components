@@ -18,8 +18,13 @@
         "CustomElements",
         "JavaScript",
         "SFC",
-        "Vanilla",
+        "ShadowDocument",
+        "ShadowDOM",
+        "ShadowRoot",
+        "Single File Components",
+        "Single Page Application",
         "SPA",
+        "Vanilla",
         "vite",
         "WebComponents",
         "W3C"
@@ -37,5 +42,5 @@
         "url": "git+https://github.com/vanillaspa/web-components.git"
     },
     "type": "module",
-    "version": "2.8.0"
+    "version": "2.9.0"
 }

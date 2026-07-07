@@ -1,17 +1,17 @@
 # @vanillaspa/web-components
 
-> Register `.sfc` files as native custom elements with a tiny runtime layer.
+> Register `.sfc.html` files as native custom elements with a tiny runtime layer.
 
-Write a `.sfc` file. Get a custom element. That's it.
+Write a `.sfc.html` file. Get a custom element. That's it.
 
 ---
 
 ## How it works
 
-Each `.sfc` file under `src/components/` may contain up to three top-level tags:
+Each `.sfc.html` file under `src/components/` may contain up to three top-level tags:
 
 ```html
-<!-- src/components/app/app-card.sfc -->
+<!-- src/components/app/app-card.sfc.html -->
 <template>
     <article>
         <slot></slot>
@@ -33,17 +33,17 @@ The runtime expects these files to be imported as raw text and registered throug
 ```js
 import { registerComponents } from '@vanillaspa/web-components';
 
-registerComponents(import.meta.glob('/src/components/**/*.sfc', { eager: true, query: '?raw' }));
+registerComponents(import.meta.glob('/src/components/**/*.sfc.html', { eager: true, query: '?raw' }));
 ```
 
 The filename stem becomes the custom element name:
 
 | File | Element |
 |------|---------|
-| `src/components/app/app-card.sfc` | `<app-card>` |
-| `src/components/router/router-app.sfc` | `<router-app>` |
+| `src/components/app/app-card.sfc.html` | `<app-card>` |
+| `src/components/router/router-app.sfc.html` | `<router-app>` |
 
-The `<script>` body of each `.sfc` file receives **`shadowDocument`** — the element's open `ShadowRoot` — as its only argument. No framework conventions are required. **`shadowDocument`** is the private scope DOM on each of your custom HTMLElements. Most methods available on the **`document`** are also available on the **`shadowDocument`**, for instance **`getElementById`** or **`querySelector`**.
+The `<script>` body of each `.sfc.html` file receives **`shadowDocument`** — the element's open `ShadowRoot` — as its only argument. No framework conventions are required. **`shadowDocument`** is the private scope DOM on each of your custom HTMLElements. Most methods available on the **`document`** are also available on the **`shadowDocument`**, for instance **`getElementById`** or **`querySelector`**.
 
 ---
 
@@ -64,7 +64,7 @@ npm install --save-dev vite
 // main.js
 import { registerComponents } from '@vanillaspa/web-components';
 
-registerComponents(import.meta.glob('/src/components/**/*.sfc', { eager: true, query: '?raw' }));
+registerComponents(import.meta.glob('/src/components/**/*.sfc.html', { eager: true, query: '?raw' }));
 ```
 
 Then use your components anywhere in the app:
@@ -92,28 +92,19 @@ No manual `customElements.define()`. No per-component imports. No wiring.
 src/
 └── components/
     ├── app/
-    │   ├── app-root.sfc
-    │   └── app-card.sfc
+    │   ├── app-root.sfc.html
+    │   └── app-card.sfc.html
     └── ui/
-        └── nav-bar.sfc
+        └── nav-bar.sfc.html
 ```
 
 > **Each component must live under `src/components/`** so the `import.meta.glob` pattern picks it up correctly.
-
-> **SFC root tags must not carry HTML attributes.** `<template>`, `<style>`, and `<script>` are matched by tag name only.
-
----
-
-## API
-
-- `registerComponents(rawComponents, ...globalSheets)` parses each `.sfc` file, creates a component template, applies styles through `adoptedStyleSheets`, and defines the matching custom element.
-- `render(shadowRoot, template, setupFunction, ...styleSheets)` is the internal render helper used for mounting the component markup and executing the setup logic.
 
 ---
 
 ## Security and rendering
 
-- The component script is executed from the parsed `.sfc` source and receives `shadowDocument` as its only argument.
+- The component script is executed from the parsed `.sfc.html` source and receives `shadowDocument` as its only argument.
 - Styles are applied through [Constructable Stylesheets](https://developer.mozilla.org/en-US/docs/Web/API/CSSStyleSheet/CSSStyleSheet) (`adoptedStyleSheets`) so each component type can share a reusable stylesheet.
 - On `disconnectedCallback`, a `component:disconnected` event is dispatched on the host element for event-bus cleanup.
 
@@ -121,4 +112,4 @@ src/
 
 ## API reference
 
-Full technical spec: [module-web-components](https://github.com/vanillaspa/web-components/index.js)
+Full technical spec: [module-web-components](https://github.com/vanillaspa/web-components/blob/main/index.js)
