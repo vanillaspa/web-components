@@ -1,7 +1,6 @@
 /**
  * @fileoverview Register raw `.sfc.html` files as native custom elements.
  *
- * Each `.sfc.html` file is imported as raw text through `import.meta.glob(..., { eager: true, query: '?raw' })`.
  * The component's `<template>`, `<style>` and `<script>` sections are parsed and mounted into an open shadow root.
  * The `<script>` body is executed with the shadow root as `shadowDocument`.
  *
@@ -10,7 +9,8 @@
 
 /**
  * @typedef {Object} SFCModule
- * @property {string|{default:string}} default - Raw `.sfc.html` content or a module exposing it through `default`.
+ * @property {string|{default:string}} [default] - The raw `.sfc.html` file content (either directly as a string or wrapped in a module default export). 
+ * The file may contain optional `<template>`, `<style>`, and `<script>` HTML tags which are parsed at runtime.
  */
 
 /**
@@ -39,7 +39,7 @@ export async function registerComponents(rawComponents, ...globalSheets) {
     const results = await Promise.allSettled(tasks);
 
     for (const r of results) { // Log summary of failures (if any)
-        if (r.status === 'fulfilled' && r.value && r.value.status !== 'ok') { // Returning {filePath, status: 'ok'} uniformly would make the Promise.allSettled result array actually inspectable/loggable as a full registration report (useful for a dev-mode "N/M components registered" banner), rather than only surfacing failures.
+        if (r.status === 'fulfilled' && r.value && r.value?.status !== 'ok') { // Returning {filePath, status: 'ok'} uniformly would make the Promise.allSettled result array actually inspectable/loggable as a full registration report (useful for a dev-mode "N/M components registered" banner), rather than only surfacing failures.
             console.warn('component registration result:', r.value);
         } else if (r.status === 'rejected') {
             console.error('component registration task rejected', r.reason);
@@ -80,21 +80,26 @@ async function registerSingleComponent(filePath, rawContent, globalSheets) {
         if (!sfc) throw new Error('DOMParser returned null document');
 
         const template = sfc.querySelector('template') || document.createElement('template');
-        const style = sfc.querySelector('style') || document.createElement('style');
-        const script = sfc.querySelector('script') || document.createElement('script');
+        const style = sfc.querySelector('style');
+        const script = sfc.querySelector('script');
 
         // 3. Prepare and Import Virtual Script Module
-        currentStage = 'import-failed';
-        const asyncWrapper = `export async function setup(shadowDocument) {${script.textContent}}`;
-        const blob = new Blob([asyncWrapper], { type: 'text/javascript' });
-        scriptUrl = URL.createObjectURL(blob);
-
-        const module = await import(scriptUrl);
+        let module = null;
+        if (script && script.textContent.trim()) {
+            currentStage = 'import-failed';
+            const asyncWrapper = `export async function setup(shadowDocument) {${script.textContent}}`;
+            const blob = new Blob([asyncWrapper], { type: 'text/javascript' });
+            scriptUrl = URL.createObjectURL(blob);
+            module = await import(scriptUrl);
+        }
 
         // 4. Build Stylesheets
         currentStage = 'style-failed';
         const sheet = new CSSStyleSheet();
-        sheet.replaceSync(style.textContent || '');
+        if (style) {
+            sheet.replaceSync(style.textContent || '');
+        }
+        const styleSheets = [...globalSheets, sheet].filter(Boolean);
 
         // 5. Custom Element Definition
         currentStage = 'define-failed';
@@ -104,13 +109,14 @@ async function registerSingleComponent(filePath, rawContent, globalSheets) {
                 this.attachShadow({ mode: 'open' });
             }
             connectedCallback() {
-                const styleSheets = [...globalSheets, sheet]
                 this.shadowRoot.replaceChildren(template.content.cloneNode(true));
-                this.shadowRoot.adoptedStyleSheets = styleSheets.filter(Boolean);
+                this.shadowRoot.adoptedStyleSheets = styleSheets;
 
-                const maybePromise = module.setup(this.shadowRoot);
-                if (maybePromise instanceof Promise) {
-                    maybePromise.catch(err => console.error(`Component <${componentName}> setup() rejected:`, err));
+                if (module && typeof module.setup === 'function') {
+                    const maybePromise = module.setup(this.shadowRoot);
+                    if (maybePromise instanceof Promise) {
+                        maybePromise.catch(err => console.error(`Component <${componentName}> setup() rejected:`, err));
+                    }
                 }
             }
             disconnectedCallback() {
@@ -122,9 +128,5 @@ async function registerSingleComponent(filePath, rawContent, globalSheets) {
     } catch (err) {
         console.error(`Failed during phase "${currentStage}" for component ${filePath}:`, err);
         return { filePath, status: currentStage, error: err };
-    } finally {
-        if (scriptUrl) {
-            URL.revokeObjectURL(scriptUrl);
-        }
     }
 }
