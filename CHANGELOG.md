@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [2.10.0] - 2026-10-18
+
+- improved readability: stages for single component registration are now extracted into seperate functions
+- improved JSDoc
+- improved error handling
+
 ## [2.9.1] - 2026-10-14
 
 - finally block with revokeObjectURL removed, to keep the objects permanent
