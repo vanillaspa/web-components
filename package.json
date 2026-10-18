@@ -42,5 +42,5 @@
         "url": "git+https://github.com/vanillaspa/web-components.git"
     },
     "type": "module",
-    "version": "2.10.0"
+    "version": "2.11.0"
 }

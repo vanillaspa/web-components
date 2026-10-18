@@ -1,6 +1,6 @@
 # @vanillaspa/web-components
 
-> Register `.sfc.html` files as native custom elements with a tiny runtime layer.
+> Register `.sfc.html` files as native custom elements with a tiny, dependency-free runtime.
 
 Write a `.sfc.html` file. Get a custom element. That's it.
 
@@ -9,239 +9,632 @@ Write a `.sfc.html` file. Get a custom element. That's it.
 
 ---
 
+## Table of contents
+
+- [How it works](#how-it-works)
+- [Writing a component](#writing-a-component)
+- [Installation](#installation)
+- [Ways to load components](#ways-to-load-components)
+  - [1. Vite: `import.meta.glob`](#1-vite-importmetaglob)
+  - [2. No bundler: import map + `fetch`](#2-no-bundler-import-map--fetch)
+  - [3. Other bundlers](#3-other-bundlers)
+  - [4. Inline strings](#4-inline-strings)
+  - [5. File picker, folder picker, drag and drop](#5-file-picker-folder-picker-drag-and-drop)
+- [Import maps for component scripts](#import-maps-for-component-scripts)
+- [Global stylesheets (Tailwind etc.)](#global-stylesheets-tailwind-etc)
+- [Component lifecycle](#component-lifecycle)
+- [API reference](#api-reference)
+- [Behavior and limitations](#behavior-and-limitations)
+- [Security and CSP](#security-and-csp)
+- [Browser support](#browser-support)
+- [Project setup (Vite)](#project-setup-vite)
+- [Boilerplate](#boilerplate)
+- [License](#license)
+
+---
+
 ## How it works
 
-Each `.sfc.html` file may contain up to three top-level tags:
+`registerComponents()` takes a dictionary of `file path → raw .sfc.html text`. For every entry it:
+
+1. derives the tag name from the file name,
+2. parses the text with `DOMParser`,
+3. compiles the `<script>` section into a module (via a temporary Blob URL),
+4. builds a constructable stylesheet from the `<style>` section,
+5. defines a custom element that renders the `<template>` into an open shadow root and runs the script's `setup(shadowDocument)` function.
+
+The runtime itself is plain browser JavaScript with no dependencies and no build step. A bundler is only needed if you want to *collect* files at build time (see [Vite](#1-vite-importmetaglob)).
+
+## Writing a component
+
+A `.sfc.html` file may contain up to three top-level tags: `<template>`, `<style>` and `<script>`. All three are optional. Only the **first** tag of each kind is used.
 
 ```html
-<!-- src/components/app/app-card.sfc.html -->
+<!-- src/components/app/app-counter.sfc.html -->
 <template>
-    <article>
-        <slot></slot>
-    </article>
+    <button id="btn"><slot>Count</slot></button>
+    <output id="out"></output>
 </template>
 
 <style>
-    article { border: 1px solid #ccc; padding: 1rem; }
+    :host { display: inline-flex; gap: .5rem; align-items: center; }
+    button { padding: .25rem .75rem; }
 </style>
 
 <script>
-    const heading = shadowDocument.querySelector('article');
-    heading.textContent = shadowDocument.host.dataset.title;
+    // `shadowDocument` is the element's open ShadowRoot.
+    // `shadowDocument.host` is the custom element itself.
+    const host = shadowDocument.host;
+    const btn = shadowDocument.getElementById('btn');
+    const out = shadowDocument.querySelector('output');
+
+    let count = Number(host.dataset.start ?? 0);
+    const render = () => { out.textContent = String(count); };
+
+    btn.addEventListener('click', () => {
+        count++;
+        render();
+        host.dispatchEvent(new CustomEvent('count-changed', { detail: count, bubbles: true, composed: true }));
+    });
+
+    render();
 </script>
 ```
 
-The runtime expects these files to be imported as raw text and registered through `registerComponents`:
+Use it like any other element:
+
+```html
+<app-counter data-start="5">Click me</app-counter>
+```
+
+### The file name is the tag name
+
+The part of the file name before the **first dot** becomes the tag name. It must contain a hyphen and must be a valid custom element name (lowercase).
+
+| File                                        | Element        |
+| ------------------------------------------- | -------------- |
+| `src/components/app/app-card.sfc.html`      | `<app-card>`   |
+| `src/components/router/router-app.sfc.html` | `<router-app>` |
+| `modal.sfc.html`                            | ❌ `name-derive-failed` (no hyphen) |
+
+Directories are ignored; only the last path segment (split on `/`) counts.
+
+### What the `<script>` section is
+
+The script body is wrapped as the body of an **async function** inside an ES module:
+
+```js
+export async function setup(shadowDocument) { /* your script */ }
+```
+
+Consequences:
+
+- `shadowDocument` is available as a variable.
+- Top-level `await` works.
+- Static `import ... from` and `export` statements are **not** allowed (they cannot appear inside a function). Use dynamic `import()` instead, see [Import maps](#import-maps-for-component-scripts).
+- Relative dynamic imports (`import('./x.js')`) do **not** work, because the module lives at a `blob:` URL. Use absolute URLs or bare specifiers resolved by an import map.
+- The code runs in strict mode and in the main window realm. It is **not sandboxed**.
+- `setup` runs once per element connection (see [Component lifecycle](#component-lifecycle)).
+
+---
+
+## Installation
+
+```bash
+npm install @vanillaspa/web-components
+```
+
+Vite is **not** required by the runtime. It is only needed for the `import.meta.glob` examples below.
+
+---
+
+## Ways to load components
+
+`registerComponents()` accepts `Record<string, string | { default: string }>`: either the raw text directly or a module namespace whose `default` export is the text. The keys are only used for tag-name derivation and for reporting.
+
+### 1. Vite: `import.meta.glob`
+
+**Eager, as module objects (`{ default: string }`):**
 
 ```js
 import { registerComponents } from '@vanillaspa/web-components';
 
-registerComponents(import.meta.glob('/src/components/**/*.sfc.html', { eager: true, query: '?raw' }));
+registerComponents(
+    import.meta.glob('/src/components/**/*.sfc.html', { eager: true, query: '?raw' })
+);
 ```
 
-The filename stem becomes the custom element name (must contain a hyphen):
+**Eager, as plain strings:**
 
-| File | Element |
-|------|---------|
-| `src/components/app/app-card.sfc.html` | `<app-card>` |
-| `src/components/router/router-app.sfc.html` | `<router-app>` |
+```js
+registerComponents(
+    import.meta.glob('/src/components/**/*.sfc.html', { eager: true, query: '?raw', import: 'default' })
+);
+```
 
-The `<script>` body of each `.sfc.html` file receives **`shadowDocument`** — the element's open `ShadowRoot` — as its execution context. No framework conventions are required. **`shadowDocument`** is the private scope DOM on each of your custom HTMLElements. Most methods available on the **`document`** are also available on the **`shadowDocument`**, for instance **`getElementById`** or **`querySelector`**.
+**Lazy (code-split).** The runtime expects text, not loader functions, so resolve them first:
 
----
+```js
+const lazy = import.meta.glob('/src/components/**/*.sfc.html', { query: '?raw', import: 'default' });
 
-## ✨ Boilerplate Integration (`src/main.js`)
+const raw = Object.fromEntries(
+    await Promise.all(Object.entries(lazy).map(async ([path, load]) => [path, await load()]))
+);
 
-In the official **[vanillaspa/boilerplate](https://github.com/vanillaspa/boilerplate)** setup (`src/main.js`), components are gathered from external libraries and local paths using Vite's `import.meta.glob`, combined with a patched Tailwind `CSSStyleSheet`, and registered together:
+await registerComponents(raw);
+```
 
-```javascript
-/**
- * @fileoverview Application entry point for the @vanillaspa/boilerplate.
- */
-import tailwindCss from '/src/styles/tailwind.css?inline';
-import { registerComponents } from '@vanillaspa/web-components';
-import { rawComponents } from '@vanillaspa/components-library';
+**A single file:**
 
-const myComponents = import.meta.glob('/src/components/**/*.sfc.html', { eager: true, query: '?raw' });
+```js
+import card from './components/app-card.sfc.html?raw';
+await registerComponents({ './components/app-card.sfc.html': card });
+```
 
-const tailwindSheet = new CSSStyleSheet();
-tailwindSheet.replaceSync(tailwindCss.replaceAll(':root', ':host')); // patch known Tailwind issue with :root selector in shadow DOM
+### 2. No bundler: import map + `fetch`
 
-registerComponents(rawComponents, tailwindSheet);
-registerComponents(myComponents, tailwindSheet);
+Serve the files statically and load the runtime through an import map:
 
-let root = 'router-app'; // the root element to replace body children with 
-await customElements.whenDefined(root);
-
-// Optional runtime modules loaded in parallel
-const modulesToLoad = [
-    { load: () => import('@vanillaspa/event-bus') },
-    { load: () => import('@vanillaspa/sqlite-database') },
-    { load: () => import('@vanillaspa/sqlite-database/contract') },
-    { load: () => import('graphql'), name: 'graphqlmod' }
-];
-
-try {
-    const results = await Promise.allSettled(
-        modulesToLoad.map(m => m.load())
-    );
-
-    results.forEach((result, index) => {
-        if (result.status === 'rejected') {
-            console.error(`Error loading module ${index}:`, result.reason);
-            return;
+```html
+<!doctype html>
+<html>
+<head>
+    <script type="importmap">
+    {
+        "imports": {
+            "@vanillaspa/web-components": "/node_modules/@vanillaspa/web-components/index.js"
         }
+    }
+    </script>
+</head>
+<body>
+    <app-card data-title="Hello"></app-card>
 
-        const module = result.value;
-        const name = modulesToLoad[index].name || module.name; 
-        if (name) {
-            window[name] = Object.freeze({ ...module });
-        }
-    });
-} catch (error) {
-    console.error('Critical error during module initialization:', error);
-} finally {
-    document.body.replaceChildren(document.createElement(root));
+    <script type="module">
+        import { registerComponents } from '@vanillaspa/web-components';
+
+        const files = ['./components/app-card.sfc.html', './components/nav-bar.sfc.html'];
+
+        const entries = await Promise.all(files.map(async (path) => {
+            const res = await fetch(path);
+            if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+            return [path, await res.text()];
+        }));
+
+        await registerComponents(Object.fromEntries(entries));
+    </script>
+</body>
+</html>
+```
+
+Instead of a local `node_modules` path you can point the import map to a CDN. **Pin an exact version:**
+
+```html
+<script type="importmap">
+{
+    "imports": {
+        "@vanillaspa/web-components": "https://cdn.jsdelivr.net/npm/@vanillaspa/web-components@2.10.0/index.js"
+    }
 }
+</script>
 ```
 
----
+The import map must appear **before** the first module script that uses it.
 
-## 📦 Alternative Import & Interaction Vectors
+**Single request instead of many:** serve a `manifest.json` listing your component paths, or concatenate your components into one JSON file (`{ "app-card.sfc.html": "<template>…" }`) at build time and pass the parsed object straight to `registerComponents`.
 
-`registerComponents()` accepts any dictionary mapping file paths to raw SFC content (`Record<string, string | { default: string }>`). Below are alternative ways to feed component collections into the registry:
+### 3. Other bundlers
 
-### 1. Runtime Network Fetching (`fetch`)
-Fetch `.sfc.html` templates dynamically over HTTP from a backend endpoint or server:
-```javascript
+Any bundler that can import a file as a **raw string** works. Typical setups (adjust to your toolchain):
+
+**webpack**
+
+```js
+// webpack.config.js
+module.exports = { module: { rules: [{ test: /\.sfc\.html$/, type: 'asset/source' }] } };
+```
+
+```js
+const ctx = require.context('./components', true, /\.sfc\.html$/);
+registerComponents(Object.fromEntries(ctx.keys().map((key) => [key, ctx(key)])));
+```
+
+**esbuild**
+
+```js
+// build.js
+await esbuild.build({ /* ... */ loader: { '.html': 'text' } });
+```
+
+```js
+import card from './components/app-card.sfc.html';
+await registerComponents({ 'app-card.sfc.html': card });
+```
+
+### 4. Inline strings
+
+Handy for demos, tests and playgrounds. The key only needs to end in a valid name stem:
+
+```js
 import { registerComponents } from '@vanillaspa/web-components';
-
-const path = './components/modal-dialog.sfc.html';
-const response = await fetch(path);
-const rawContent = await response.text();
 
 await registerComponents({
-  [path]: rawContent
+    'hello-world.sfc.html': `
+        <template><p>Hello <slot>world</slot>!</p></template>
+        <style>p { font-family: system-ui; }</style>
+    `
 });
 ```
 
-### 2. Manual File Picker (`<input type="file">`)
-Let users select one or multiple `.sfc.html` files from their operating system:
+When embedding a component that contains a `<script>` section inside an inline `<script type="module">` in HTML, escape the closing tag as `<\/script>`, and escape backticks and `${` inside template literals.
+
+### 5. File picker, folder picker, drag and drop
+
+Let users load components from their own machine. Remember that this **executes the code in those files**; see [Security and CSP](#security-and-csp).
+
+**File picker**
+
 ```html
-<input type="file" id="sfcPicker" multiple accept=".sfc.html,.html">
+<input type="file" id="sfcPicker" multiple accept=".html">
 
 <script type="module">
-  import { registerComponents } from '@vanillaspa/web-components';
+    import { registerComponents } from '@vanillaspa/web-components';
 
-  document.getElementById('sfcPicker').addEventListener('change', async (e) => {
-    const rawComponents = {};
-    for (const file of e.target.files) {
-      rawComponents[file.name] = await file.text();
-    }
-    await registerComponents(rawComponents);
-  });
+    document.getElementById('sfcPicker').addEventListener('change', async (e) => {
+        const raw = {};
+        for (const file of e.target.files) {
+            if (file.name.endsWith('.sfc.html')) raw[file.name] = await file.text();
+        }
+        await registerComponents(raw);
+    });
 </script>
 ```
 
-### 3. Directory Crawling (`webkitdirectory`)
-Batch-import an entire folder tree of `.sfc.html` components in a single user gesture:
+**Folder picker**
 
 ```html
-<input type="file" webkitdirectory id="folderPicker">
+<input type="file" id="folderPicker" webkitdirectory>
 
 <script type="module">
-  import { registerComponents } from '@vanillaspa/web-components';
+    import { registerComponents } from '@vanillaspa/web-components';
 
-  document.getElementById('folderPicker').addEventListener('change', async (e) => {
-    const rawComponents = {};
-    for (const file of e.target.files) {
-      if (file.name.endsWith('.sfc.html')) {
-        rawComponents[file.webkitRelativePath || file.name] = await file.text();
-      }
-    }
-    await registerComponents(rawComponents);
-  });
+    document.getElementById('folderPicker').addEventListener('change', async (e) => {
+        const raw = {};
+        for (const file of e.target.files) {
+            if (file.name.endsWith('.sfc.html')) {
+                raw[file.webkitRelativePath || file.name] = await file.text();
+            }
+        }
+        await registerComponents(raw);
+    });
 </script>
 ```
 
-### 4. Spatial Drag and Drop
-Let users drag `.sfc.html` files or directories from their OS file manager directly into an interactive drop zone:
-```javascript
+**Drag and drop** (files; dropped folders are not traversed by this snippet)
+
+```js
 import { registerComponents } from '@vanillaspa/web-components';
 
 const dropZone = document.getElementById('dropZone');
 
 dropZone.addEventListener('dragover', (e) => e.preventDefault());
 dropZone.addEventListener('drop', async (e) => {
-  e.preventDefault();
-  
-  const rawComponents = {};
-  for (const file of e.dataTransfer.files) {
-    if (file.name.endsWith('.sfc.html')) {
-      rawComponents[file.name] = await file.text();
+    e.preventDefault();
+    const raw = {};
+    for (const file of e.dataTransfer.files) {
+        if (file.name.endsWith('.sfc.html')) raw[file.name] = await file.text();
     }
-  }
-
-  await registerComponents(rawComponents);
+    await registerComponents(raw);
 });
 ```
 
 ---
 
-## Installation & Requirements
+## Import maps for component scripts
 
-`@vanillaspa/web-components` uses [Vite](https://vite.dev) and `import.meta.glob`. **Vite is required** as a peer dependency.
+Because component scripts are compiled as modules, **bare specifiers in dynamic `import()` calls are resolved by the page's import map**, even though the module itself lives at a `blob:` URL. This is the recommended way to use libraries from inside a component without a bundler:
 
-```bash
-npm install @vanillaspa/web-components
-npm install --save-dev vite
+```html
+<script type="importmap">
+{
+    "imports": {
+        "@vanillaspa/web-components": "/node_modules/@vanillaspa/web-components/index.js",
+        "dayjs": "https://cdn.jsdelivr.net/npm/dayjs@1.11.13/esm/index.js"
+    }
+}
+</script>
 ```
+
+```html
+<!-- app-clock.sfc.html -->
+<template><time></time></template>
+
+<script>
+    const { default: dayjs } = await import('dayjs');
+    const time = shadowDocument.querySelector('time');
+
+    const tick = () => { time.textContent = dayjs().format('HH:mm:ss'); };
+    tick();
+    const id = setInterval(tick, 1000);
+
+    // clean up when the element is removed from the DOM
+    shadowDocument.host.addEventListener('component:disconnected', () => clearInterval(id), { once: true });
+</script>
+```
+
+With a bundler such as Vite, the same bare specifiers are resolved by the bundler **only for static imports in your own code**. A dynamic `import('dayjs')` inside a component script is evaluated at runtime in the browser, so it needs an import map (or an absolute URL), or you expose the library on `window` yourself before registering components.
 
 ---
 
-## File layout
+## Global stylesheets (Tailwind etc.)
 
+Pass any number of `CSSStyleSheet` objects after the components. They are adopted by every shadow root, **before** the component's own sheet, so component styles win on equal specificity.
+
+```js
+import tailwindCss from '/src/styles/tailwind.css?inline';
+import { registerComponents } from '@vanillaspa/web-components';
+
+const tailwind = new CSSStyleSheet();
+tailwind.replaceSync(tailwindCss.replaceAll(':root', ':host')); // `:root` does not match inside a shadow root
+
+await registerComponents(myComponents, tailwind);
 ```
-src/
-└── components/
-    ├── app/
-    │   ├── app-root.sfc.html
-    │   └── app-card.sfc.html
-    └── ui/
-        └── nav-bar.sfc.html
+
+Without a bundler:
+
+```js
+const css = await (await fetch('/styles/global.css')).text();
+const sheet = new CSSStyleSheet();
+await sheet.replace(css);
+
+await registerComponents(raw, sheet);
 ```
+
+Note: `@import` rules are ignored in constructable stylesheets, so inline or concatenate your CSS first.
 
 ---
 
-## Security and rendering
+## Component lifecycle
 
-- The component script executes via a temporary Blob URL and receives `shadowDocument` as its setup argument.
-- Styles are applied through [Constructable Stylesheets](https://developer.mozilla.org/en-US/docs/Web/API/CSSStyleSheet/CSSStyleSheet) (`adoptedStyleSheets`) so each component type can share reusable global sheets.
-- On `disconnectedCallback`, a `component:disconnected` event is dispatched on the host element for event-bus cleanup.
+```
+registerComponents()
+ └─ per file:  derive name → parse → import script → create styles → customElements.define
+                                                                         │
+ per element instance                                                    ▼
+   connectedCallback()   replace shadow children with a clone of <template>,
+                         adopt stylesheets, call setup(shadowRoot)
+   disconnectedCallback() dispatch 'component:disconnected' on the host
+```
+
+- The script module is imported **once per tag name**, not per instance.
+- The element is defined only **after** the script has loaded. Elements already present in the DOM are upgraded at that point. Use `await customElements.whenDefined('my-tag')` to wait for it.
+- `setup()` is **not awaited**. If it rejects, the error is logged with `console.error` and the element stays rendered.
+- `setup()` runs on **every** connection. If an element is moved or re-attached, its shadow content is re-rendered and `setup()` runs again, so register listeners and timers there and release them on `component:disconnected`.
+- The return value of `setup()` is ignored.
+
+### Reacting to attribute changes
+
+There is no `observedAttributes` support. Observe the host yourself:
+
+```html
+<script>
+    const host = shadowDocument.host;
+    const label = shadowDocument.querySelector('span');
+
+    const render = () => { label.textContent = host.getAttribute('title') ?? ''; };
+    const observer = new MutationObserver(render);
+    observer.observe(host, { attributes: true, attributeFilter: ['title'] });
+    render();
+
+    host.addEventListener('component:disconnected', () => observer.disconnect(), { once: true });
+</script>
+```
+
+### Event bus / cleanup
+
+`component:disconnected` is dispatched on the host element with `bubbles: false`. Listen on the element itself (`shadowDocument.host`), not on an ancestor.
 
 ---
 
-## API Reference & Status Codes (`registerComponents`)
+## API reference
 
-```javascript
+### `registerComponents(rawComponents, ...globalSheets)`
+
+```js
 /**
- * @param {Record<string, string|{default: string}>} rawComponents - Map of file path -> raw content
- * @param {...CSSStyleSheet} globalSheets - Optional global constructable stylesheets applied to all shadow roots
+ * @param {Record<string, string|{default: string}>} rawComponents - Map of file path → raw .sfc.html content
+ * @param {...CSSStyleSheet} globalSheets - Optional global stylesheets applied to every component
  * @returns {Promise<Array<{filePath: string, status: string, error?: Error|null}>>}
  */
 ```
 
-### Status Report Codes (`RegistrationResult`)
-* `'ok'` — Component successfully parsed and registered.
-* `'already-defined'` — Custom element tag name is already registered.
-* `'name-derive-failed'` — Filename stem does not contain a hyphen (`-`).
-* `'parse-failed'` — `DOMParser` failed to parse the file text.
-* `'import-failed'` — Inline `<script>` execution or blob import threw an error.
-* `'style-failed'` — Constructable stylesheet creation failed.
-* `'define-failed'` — `customElements.define()` threw an exception.
-* `'system-error'` — Unhandled internal crash.
+The promise always resolves with one report per input entry. It does not reject for failed components, so check the statuses:
+
+```js
+const results = await registerComponents(components);
+
+const failed = results.filter((r) => r.status !== 'ok' && r.status !== 'already-defined');
+failed.forEach((r) => console.error(`${r.filePath}: ${r.status}`, r.error));
+```
+
+### Status codes
+
+| Status              | Meaning |
+| ------------------- | ------- |
+| `ok`                | Component parsed, compiled and registered. |
+| `already-defined`   | A custom element with this tag name was already registered **before** this call. Nothing was changed. |
+| `name-derive-failed`| The path is not a non-empty string, or the file name stem contains no hyphen. |
+| `parse-failed`      | `DOMParser` did not return a document. |
+| `import-failed`     | Importing the compiled `<script>` failed (syntax error, blocked by CSP, forbidden `import`/`export` statement, …). |
+| `style-failed`      | Creating the constructable stylesheet failed (e.g. no support in this browser). |
+| `define-failed`     | `customElements.define()` threw, e.g. an invalid tag name, or two files in the **same** call with the same name stem. |
+| `system-error`      | An unexpected internal error. The entry is logged with `console.error`. |
+
+### Types
+
+The package is documented with JSDoc. The exported typedefs are `SFCModule` and `RegistrationResult`.
 
 ---
 
-## 📄 License
+## Behavior and limitations
+
+- Only the first `<template>`, `<style>` and `<script>` of a file are used; additional ones are ignored.
+- There is no scoping beyond the Shadow DOM and no reactivity system. State handling is up to your script.
+- Components are registered once. There is no hot replacement: registering the same tag name again yields `already-defined`.
+- Component styles are applied **only** inside the shadow root. Use [global stylesheets](#global-stylesheets-tailwind-etc) for shared styles.
+- No server-side rendering.
+- Windows-style paths with backslashes are not split. Normalize keys to `/` before registering.
+
+---
+
+## Security and CSP
+
+- Component scripts execute through a temporary **Blob URL** (`import(blobUrl)`). No `eval` or `new Function` is used, so `unsafe-eval` and Trusted Types are **not** required.
+- Your Content Security Policy **must allow `blob:` in `script-src`**, for example:
+
+  ```
+  Content-Security-Policy: script-src 'self' blob:; script-src-elem 'self' blob:
+  ```
+
+  Vite's `server.headers` only applies to the dev server. Set the same header in production (reverse proxy, CDN or hosting config). See [Project setup](#project-setup-vite).
+
+- Scripts run with the same privileges as your page. `shadowDocument` is a convenience, **not a sandbox**.
+- Only register components from sources you trust. Loading `.sfc.html` files from user input (file picker, drag and drop) or from third-party servers is equivalent to executing that code on your page.
+
+---
+
+## Browser support
+
+Requires custom elements v1, Shadow DOM, constructable stylesheets (`adoptedStyleSheets`), dynamic `import()` and Blob URLs. In practice that means current evergreen browsers (roughly Chrome/Edge 89+, Firefox 108+, Safari 16.4+). Import maps, if you use them, have similar requirements.
+
+---
+
+## Project setup (Vite)
+
+This is the setup used by the official [vanillaspa/boilerplate](https://github.com/vanillaspa/boilerplate).
+
+### `vite.config.js`
+
+Trimmed to the parts that matter for the runtime:
+
+```js
+import { defineConfig } from 'vite';
+import tailwindcss from '@tailwindcss/vite';
+
+export default defineConfig({
+    build: {
+        target: 'esnext' // required for top-level await in src/main.js
+    },
+    server: {
+        headers: {
+            // `blob:` is required: component scripts are imported from Blob URLs.
+            // 'wasm-unsafe-eval' is only needed for SQLite WASM, not for this package.
+            'Content-Security-Policy':
+                "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' blob:; script-src-elem 'self' blob:; " +
+                "img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:;",
+
+            // Only needed for SQLite WASM with OPFS (cross-origin isolation):
+            'Cross-Origin-Embedder-Policy': 'require-corp',
+            'Cross-Origin-Opener-Policy': 'same-origin',
+
+            'Referrer-Policy': 'strict-origin-when-cross-origin',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'DENY'
+        }
+    },
+    optimizeDeps: {
+        exclude: ['@sqlite.org/sqlite-wasm'] // only if you use SQLite WASM
+    },
+    plugins: [tailwindcss()]
+});
+```
+
+What belongs to what:
+
+| Setting | Needed by |
+| --- | --- |
+| `script-src … blob:` | **this package** (Blob URL script modules) |
+| `build.target: 'esnext'` | top-level `await` in `main.js` |
+| `wasm-unsafe-eval`, COOP/COEP, `optimizeDeps.exclude` | SQLite WASM (OPFS), optional |
+| `hmr: { protocol: 'wss' }`, `basicSsl()` | only when the dev server runs over HTTPS; omit both otherwise |
+
+### `src/main.js`: boot sequence
+
+```js
+import { registerComponents } from '@vanillaspa/web-components';
+import tailwindCss from '/src/styles/tailwind.css?inline';
+
+// 1. Global stylesheet shared by all shadow roots
+const tailwindSheet = new CSSStyleSheet();
+tailwindSheet.replaceSync(tailwindCss.replaceAll(':root', ':host')); // `:root` does not match in shadow DOM
+
+// 2. Discover and register all components
+const components = import.meta.glob('/src/components/**/*.sfc.html', { eager: true, query: '?raw' });
+const results = await registerComponents(components, tailwindSheet);
+
+results
+    .filter((r) => r.status !== 'ok' && r.status !== 'already-defined')
+    .forEach((r) => console.error(`${r.filePath}: ${r.status}`, r.error));
+
+const root = 'home-page'; // the root element that replaces the body content
+if (!customElements.get(root)) {
+    throw new Error(`Root component <${root}> was not registered, see errors above.`);
+}
+
+// 3. Optional runtime modules, loaded in parallel and exposed on `window`.
+//    Use `name` to choose the global name, otherwise the module's exported `name` is used.
+const modulesToLoad = [
+    { load: () => import('@vanillaspa/sqlite-database') },
+    { load: () => import('@vanillaspa/sqlite-database/contract') }
+    // { load: () => import('@vanillaspa/event-bus'), name: 'eventBus' }
+];
+
+const loaded = await Promise.allSettled(modulesToLoad.map((m) => m.load())); // one failing module must not block the boot
+
+loaded.forEach((result, index) => {
+    if (result.status === 'rejected') {
+        console.error(`Error loading module ${index}:`, result.reason);
+        return;
+    }
+    const name = modulesToLoad[index].name || result.value.name;
+    if (name) window[name] = Object.freeze({ ...result.value });
+});
+
+// 4. Mount the app last
+document.body.replaceChildren(document.createElement(root));
+```
+
+Why it is structured this way:
+
+- **Mount last.** Component scripts run in `setup()` when their element connects. Because the root element is only created after the optional modules are on `window`, every component can rely on those globals in `setup()`. Keep `index.html`'s `<body>` empty so no component connects earlier.
+- **Await the registration.** `registerComponents()` resolves with one status per file and never rejects. Checking the results (or `customElements.get(root)`) avoids waiting forever on `customElements.whenDefined(root)` if the root component failed to register.
+- **`Promise.allSettled`** keeps optional modules optional: a rejected import is logged and skipped.
+- **`Object.freeze({ ...module })`** exposes a read-only copy, so components cannot overwrite a service by accident.
+
+### Global CSS libraries and shadow roots
+
+A stylesheet imported in `main.js` (for example `import '@fortawesome/fontawesome-free/css/all.css'`) applies to the **document only**. Its class rules do not reach elements inside component shadow roots. If you need such classes (like `.fa-solid`) inside components:
+
+- keep the global import, because `@font-face` rules must be declared at document level, **and**
+- adopt the same CSS as an additional global sheet:
+
+```js
+import faCss from '@fortawesome/fontawesome-free/css/all.css?inline';
+
+const faSheet = new CSSStyleSheet();
+faSheet.replaceSync(faCss);
+
+await registerComponents(components, tailwindSheet, faSheet);
+```
+
+---
+
+## Boilerplate
+
+The official **[vanillaspa/boilerplate](https://github.com/vanillaspa/boilerplate)** wires all of this together with Vite, Tailwind and a component library (`@vanillaspa/components-library`), including the optional runtime modules `@vanillaspa/event-bus` and `@vanillaspa/sqlite-database`.
+
+---
+
+## License
+
 This is free and unencumbered software released into the public domain. See [UNLICENSE](https://unlicense.org) for details.
