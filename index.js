@@ -194,7 +194,7 @@ function defineSFCElement(componentName, sfc, module, styleSheets) {
             }
             const json = JSON.stringify(value);
             if (json === undefined) throw new TypeError(`Component <${componentName}>: state is not JSON-serializable.`);
-            this.setAttribute('data-state', json);
+            this.dataset.state = json;
         }
 
         constructor() {
