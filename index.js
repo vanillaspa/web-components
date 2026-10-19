@@ -126,7 +126,6 @@ function parseSFCContent(rawContent) {
     return sfc;
 }
 
-
 /**
  * Stage 3: Compiles and imports the optional SFC script via a temporary Blob URL.
  * Safely revokes the object URL once the import is fully resolved.
@@ -163,7 +162,6 @@ function createSFCStyles(sfc, globalSheets) {
     return [...globalSheets, sheet].filter(Boolean);
 }
 
-
 /**
  * Stage 5: Defines the custom element class and registers it with the browser.
  * @param {string} componentName - The tag name for the custom element.
@@ -173,9 +171,32 @@ function createSFCStyles(sfc, globalSheets) {
  */
 function defineSFCElement(componentName, sfc, module, styleSheets) {
     const template = sfc.querySelector('template') || document.createElement('template');
-
     // https://developer.mozilla.org/en-US/docs/Web/API/Web_components/Using_custom_elements#custom_element_lifecycle_callbacks
     customElements.define(componentName, class extends HTMLElement {
+        static observedAttributes = ["data-state"]; /** Name of the observed attribute that carries the component's state as JSON. */
+        /** @returns {any} The parsed `data-state` (a fresh copy), or `null` if absent or not valid JSON. */
+        get state() {
+            const raw = this.dataset.state;
+            if (raw === null) return null;
+            try {
+                return JSON.parse(raw);
+            } catch (err) {
+                console.error(`Component <${componentName}> has invalid data-state JSON:`, err);
+                return null;
+            }
+        }
+
+        /** @param {any} value - Any JSON-serializable value; `null`/`undefined` removes the attribute. */
+        set state(value) {
+            if (value === null || value === undefined) {
+                this.removeAttribute('data-state');
+                return;
+            }
+            const json = JSON.stringify(value);
+            if (json === undefined) throw new TypeError(`Component <${componentName}>: state is not JSON-serializable.`);
+            this.setAttribute('data-state', json);
+        }
+
         constructor() {
             super();
             this.attachShadow({ mode: 'open' });
@@ -188,8 +209,27 @@ function defineSFCElement(componentName, sfc, module, styleSheets) {
                     .catch(err => console.error(`Component <${componentName}> setup() rejected:`, err));
             }
         }
+        attributeChangedCallback(name, oldValue, newValue) {
+            console.log(`Attribute ${name} has changed.`);
+            if (oldValue !== newValue && this.isConnected) this.#renderState();
+        }
         disconnectedCallback() {
             this.dispatchEvent(new CustomEvent('component:disconnected', { bubbles: false }));
+        }
+
+        /**
+         * Generic render hook. Does nothing by default; the component script replaces it inside `setup()`.
+         * @param {any} state - The current `data-state`, or `null`.
+         */
+        render(state) { }
+
+        /** Calls `render()` with the current state. An error in a component's render never breaks the runtime. */
+        #renderState() {
+            try {
+                this.render(this.dataset.state);
+            } catch (err) {
+                console.error(`Component <${componentName}> render() threw:`, err);
+            }
         }
     });
 }
