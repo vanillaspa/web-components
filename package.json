@@ -17,6 +17,7 @@
     "keywords": [
         "CustomElements",
         "JavaScript",
+        "reactive",
         "SFC",
         "ShadowDocument",
         "ShadowDOM",
@@ -24,6 +25,7 @@
         "Single File Components",
         "Single Page Application",
         "SPA",
+        "state",
         "Vanilla",
         "vite",
         "WebComponents",
@@ -42,5 +44,5 @@
         "url": "git+https://github.com/vanillaspa/web-components.git"
     },
     "type": "module",
-    "version": "2.12.1"
+    "version": "2.13.0"
 }

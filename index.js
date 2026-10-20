@@ -8,7 +8,7 @@
  */
 
 /**
- * @typedef {string|{default:string}} SFCModule
+ * @typedef {string|{default:string}} SFCContent
  * The raw `.sfc.html` file content (either directly as a string or wrapped in a module default export). 
  * The file may contain optional `<template>`, `<style>`, and `<script>` HTML tags which are parsed at runtime.
  */
@@ -16,7 +16,7 @@
 /**
  * @typedef {Object} RegistrationResult
  * @property {string} filePath - The path of the source file.
- * @property {'ok'|'name-derive-failed'|'already-defined'|'parse-failed'|'import-failed'|'style-failed'|'define-failed'|'system-error'} status - The outcome status.
+ * @property {'ok'|'name-derive-failed'|'already-defined'|'parse-failed'|'module-failed'|'style-failed'|'define-failed'|'system-error'} status - The outcome status.
  * @property {Error|null} [error] - The error object if the status is not 'ok'.
  */
 
@@ -27,14 +27,14 @@
  * a shared `CSSStyleSheet` is created for the component style, and a custom
  * element is registered using the filename stem as the tag name.
  *
- * @param {Record<string, SFCModule>} rawComponents - Map of file path → raw `.sfc.html` content.
- * @param {...CSSStyleSheet} globalSheets - Optional global stylesheets to apply to every component instance.
+ * @param {Record<string, SFCContent>} rawComponents - Map of file path → raw `.sfc.html` content.
+ * @param {...CSSStyleSheet} globalStyles - Optional global stylesheets to apply to every component instance.
  * @returns {Promise<RegistrationResult[]>} A promise resolving to an array of the status reports.
  */
-export async function registerComponents(rawComponents, ...globalSheets) {
+export async function registerComponents(rawComponents, ...globalStyles) {
     const components = rawComponents || {};
     const tasks = Object.entries(components).map(([filePath, rawContent]) =>
-        registerSingleComponent(filePath, rawContent, globalSheets)
+        registerSingleComponent(filePath, rawContent, globalStyles)
     );
 
     const results = await Promise.allSettled(tasks);
@@ -52,11 +52,11 @@ export async function registerComponents(rawComponents, ...globalSheets) {
 /**
  * Parses and registers a single SFC file as a custom element.
  * @param {string} filePath - The path of the source file.
- * @param {SFCModule} rawContent - The content or exported default of the SFC file.
- * @param {CSSStyleSheet[]} globalSheets - Optional global stylesheets to apply to every component instance.
+ * @param {SFCContent} rawContent - The content or exported default of the SFC file.
+ * @param {CSSStyleSheet[]} globalStyles - Optional global stylesheets to apply to every component instance.
  * @returns {Promise<RegistrationResult>}
  */
-async function registerSingleComponent(filePath, rawContent, globalSheets) {
+async function registerSingleComponent(filePath, rawContent, globalStyles) {
     let componentName;
     try {
         componentName = deriveComponentName(filePath);
@@ -75,22 +75,25 @@ async function registerSingleComponent(filePath, rawContent, globalSheets) {
         return { filePath, status: 'parse-failed', error: err };
     }
 
+    let template;
+    template = sfc.querySelector('template') || document.createElement('template');
+
     let module;
     try {
-        module = await importSFCModule(sfc);
+        module = await createSFCModule(sfc);
     } catch (err) {
-        return { filePath, status: 'import-failed', error: err };
+        return { filePath, status: 'module-failed', error: err };
     }
 
-    let styleSheets;
+    let styles;
     try {
-        styleSheets = createSFCStyles(sfc, globalSheets);
+        styles = createSFCStyles(sfc, globalStyles);
     } catch (err) {
         return { filePath, status: 'style-failed', error: err };
     }
 
     try {
-        defineSFCElement(componentName, sfc, module, styleSheets);
+        defineSFCElement(componentName, template, module, styles);
         return { filePath, status: 'ok' };
     } catch (err) {
         return { filePath, status: 'define-failed', error: err };
@@ -116,7 +119,7 @@ function deriveComponentName(filePath) {
 
 /**
 * Stage 2: Parses raw SFC text content into a DOM Document.
-* @param {SFCModule} rawContent - The content or exported default of the SFC file.
+* @param {SFCContent} rawContent - The content or exported default of the SFC file.
 * @returns {Document} The parsed document representation of the SFC.
 */
 function parseSFCContent(rawContent) {
@@ -132,7 +135,7 @@ function parseSFCContent(rawContent) {
  * @param {Document} sfc - The parsed SFC document.
  * @returns {Promise<any|null>} The imported module or null if no script is present.
  */
-async function importSFCModule(sfc) {
+async function createSFCModule(sfc) {
     const script = sfc.querySelector('script');
     if (!script || !script.textContent.trim()) {
         return null;
@@ -150,34 +153,33 @@ async function importSFCModule(sfc) {
 /**
  * Stage 4: Generates the combined component styles and global stylesheets.
  * @param {Document} sfc - The parsed SFC document.
- * @param {CSSStyleSheet[]} globalSheets - Global stylesheets to inherit.
+ * @param {CSSStyleSheet[]} globalStyles - Global stylesheets to inherit.
  * @returns {CSSStyleSheet[]} Array of stylesheets to apply to shadow root.
  */
-function createSFCStyles(sfc, globalSheets) {
+function createSFCStyles(sfc, globalStyles) {
     const style = sfc.querySelector('style');
     const sheet = new CSSStyleSheet();
     if (style) {
         sheet.replaceSync(style.textContent || '');
     }
-    return [...globalSheets, sheet].filter(Boolean);
+    return [...globalStyles, sheet].filter(Boolean);
 }
 
 /**
  * Stage 5: Defines the custom element class and registers it with the browser.
  * @param {string} componentName - The tag name for the custom element.
- * @param {Document} sfc - The parsed SFC document.
- * @param {any} module - The imported SFC module.
- * @param {CSSStyleSheet[]} styleSheets - Constructable stylesheets for shadow root.
+ * @param {Document} template - The SFC template.
+ * @param {any} module - The SFC module.
+ * @param {CSSStyleSheet[]} styles - Constructable stylesheets for shadow root.
  */
-function defineSFCElement(componentName, sfc, module, styleSheets) {
-    const template = sfc.querySelector('template') || document.createElement('template');
+function defineSFCElement(componentName, template, module, styles) {
     // https://developer.mozilla.org/en-US/docs/Web/API/Web_components/Using_custom_elements#custom_element_lifecycle_callbacks
     customElements.define(componentName, class extends HTMLElement {
         static observedAttributes = ["data-state"]; /** Name of the observed attribute that carries the component's state as JSON. */
         /** @returns {any} The parsed `data-state` (a fresh copy), or `null` if absent or not valid JSON. */
         get state() {
             const raw = this.dataset.state;
-            if (raw === null) return null;
+            if (raw === null || raw === undefined) return null;
             try {
                 return JSON.parse(raw);
             } catch (err) {
@@ -201,16 +203,17 @@ function defineSFCElement(componentName, sfc, module, styleSheets) {
             super();
             this.attachShadow({ mode: 'open' });
         }
+
         connectedCallback() {
             this.shadowRoot.replaceChildren(template.content.cloneNode(true));
-            this.shadowRoot.adoptedStyleSheets = styleSheets;
+            this.shadowRoot.adoptedStyleSheets = styles;
             if (module && typeof module.setup === 'function') {
                 module.setup(this.shadowRoot)
+                    .then(() => this.isConnected && this.#renderState())
                     .catch(err => console.error(`Component <${componentName}> setup() rejected:`, err));
             }
         }
         attributeChangedCallback(name, oldValue, newValue) {
-            console.log(`Attribute ${name} has changed.`);
             if (oldValue !== newValue && this.isConnected) this.#renderState();
         }
         disconnectedCallback() {
@@ -218,7 +221,7 @@ function defineSFCElement(componentName, sfc, module, styleSheets) {
         }
 
         /**
-         * Generic render hook. Does nothing by default; the component script replaces it inside `setup()`.
+         * Generic render hook. Does nothing by default; the component module replaces it inside `setup()`.
          * @param {any} state - The current `data-state`, or `null`.
          */
         render(state) { }
@@ -226,7 +229,7 @@ function defineSFCElement(componentName, sfc, module, styleSheets) {
         /** Calls `render()` with the current state. An error in a component's render never breaks the runtime. */
         #renderState() {
             try {
-                this.render(this.dataset.state);
+                this.render(this.state);
             } catch (err) {
                 console.error(`Component <${componentName}> render() threw:`, err);
             }
