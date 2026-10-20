@@ -41,7 +41,7 @@ Write a `.sfc.html` file. Get a custom element. That's it.
 2. parses the text with `DOMParser`,
 3. compiles the `<script>` section into a module (via a temporary Blob URL),
 4. builds a constructable stylesheet from the `<style>` section,
-5. defines a custom element that renders the `<template>` into an open shadow root and runs the script's `setup(shadowDocument)` function.
+5. defines a custom element that renders the `<template>` into an open shadow root, runs the script's `setup(shadowDocument)` function and observes a `data-state` attribute (a JSON value) as the component's state. Every state change calls the component's `render(state)`.
 
 The runtime itself is plain browser JavaScript with no dependencies and no build step. A bundler is only needed if you want to *collect* files at build time (see [Vite](#1-vite-importmetaglob)).
 
@@ -68,24 +68,23 @@ A `.sfc.html` file may contain up to three top-level tags: `<template>`, `<style
     const btn = shadowDocument.getElementById('btn');
     const out = shadowDocument.querySelector('output');
 
-    let count = Number(host.dataset.start ?? 0);
-    const render = () => { out.textContent = String(count); };
+    // `host.state` is the parsed JSON of the `data-state` attribute (or `null`).
+    // `render(state)` is called after setup() and every time the state changes.
+    host.render = (state) => { out.textContent = String(state?.count ?? 0); };
 
     btn.addEventListener('click', () => {
-        count++;
-        render();
-        host.dispatchEvent(new CustomEvent('count-changed', { detail: count, bubbles: true, composed: true }));
+        host.state = { ...host.state, count: (host.state?.count ?? 0) + 1 }; // updates the attribute → render()
     });
-
-    render();
 </script>
 ```
 
 Use it like any other element:
 
 ```html
-<app-counter data-start="5">Click me</app-counter>
+<app-counter data-state='{"count":5}'>Click me</app-counter>
 ```
+
+`data-state` holds the component's state as JSON, the generic counterpart of single attributes like `data-start="5"`. See [State](#state-data-state).
 
 ### The file name is the tag name
 
@@ -188,7 +187,7 @@ Serve the files statically and load the runtime through an import map:
     </script>
 </head>
 <body>
-    <app-card data-title="Hello"></app-card>
+    <app-card data-state='{"title":"Hello"}'></app-card>
 
     <script type="module">
         import { registerComponents } from '@vanillaspa/web-components';
@@ -398,52 +397,159 @@ Note: `@import` rules are ignored in constructable stylesheets, so inline or con
 
 ```
 registerComponents()
- └─ per file:  derive name → parse → import script → create styles → customElements.define
-                                                                         │
- per element instance                                                    ▼
-   connectedCallback()   replace shadow children with a clone of <template>,
-                         adopt stylesheets, call setup(shadowRoot)
-   disconnectedCallback() dispatch 'component:disconnected' on the host
+ └─ per file:  derive name → parse → create script module → create styles → customElements.define
+
+per element instance
+   connectedCallback()         replace shadow children with a clone of <template>,
+                               adopt stylesheets, call setup(shadowRoot)
+                               └─ when setup() resolved and the element is still connected:
+                                  host.render(state)                         (initial render)
+   attributeChangedCallback()  data-state changed while connected → host.render(state)
+   disconnectedCallback()      dispatch 'component:disconnected' on the host
 ```
 
-- The script module is imported **once per tag name**, not per instance.
-- The element is defined only **after** the script has loaded. Elements already present in the DOM are upgraded at that point. Use `await customElements.whenDefined('my-tag')` to wait for it.
-- `setup()` is **not awaited**. If it rejects, the error is logged with `console.error` and the element stays rendered.
-- `setup()` runs on **every** connection. If an element is moved or re-attached, its shadow content is re-rendered and `setup()` runs again, so register listeners and timers there and release them on `component:disconnected`.
+- The script module is created **once per tag name**, not per instance.
+- The element is defined only **after** the script module has loaded. Elements already present in the DOM are upgraded at that point. Use `await customElements.whenDefined('my-tag')` to wait for it.
+- `setup()` is **not awaited** by the browser. If it rejects, the error is logged with `console.error`, the initial `render()` call is skipped and the element stays rendered.
+- `setup()` runs on **every** connection. If an element is moved or re-attached, its shadow content is re-rendered and `setup()` runs again, so register listeners and timers there and release them on [`component:disconnected`](#cleanup-componentdisconnected).
 - The return value of `setup()` is ignored.
 
-### Reacting to attribute changes
+### State: `data-state`
 
-There is no `observedAttributes` support. Observe the host yourself:
+`data-state` is the generic **component state**. Where you would use `data-start="5"` for a single value and read it with `host.dataset.start`, `data-state` carries the whole state of the component as one JSON value.
+
+| Member | Description |
+| ------ | ----------- |
+| `data-state="…"` | The raw JSON string in the attribute. Observed: a change calls `render()`. |
+| `host.state` | The parsed attribute, as a **fresh copy** on every access. `null` if the attribute is absent or not valid JSON (the latter also logs an error). |
+| `host.state = value` | Serializes `value` with `JSON.stringify` into the attribute. `null` or `undefined` removes the attribute. Throws a `TypeError` if the value is not JSON-serializable. |
+| `host.render(state)` | Generic render hook, called by the runtime. See [Rendering](#rendering-with-render). |
+
+**Setting the state**
+
+In HTML, wrap the attribute in single quotes so the JSON can use double quotes:
+
+```html
+<upload-panel data-state='{"loading":true,"progress":40,"message":"Uploading…"}'></upload-panel>
+```
+
+In JavaScript, assign to the property (preferred) or set the attribute yourself:
+
+```js
+const panel = document.querySelector('upload-panel');
+
+panel.state = { loading: true, progress: 80, message: 'Almost there' };
+panel.state = { ...panel.state, loading: false }; // update: assign a new object
+panel.state = null;                               // removes the attribute
+
+panel.setAttribute('data-state', '{"loading":false}'); // equivalent to the property
+panel.dataset.state;                                   // the raw JSON string
+```
+
+`host.state` is a copy, so `host.state.progress = 90` changes nothing. Assign a new object instead.
+
+#### Rendering with `render()`
+
+Every component host has a `render(state)` method. By default it does nothing. Replace it **inside `setup()`** with the function that draws your component:
+
+```html
+<!-- upload-panel.sfc.html -->
+<template>
+    <progress id="bar" max="100"></progress>
+    <p id="msg"></p>
+</template>
+
+<script>
+    const host = shadowDocument.host;
+    const bar = shadowDocument.getElementById('bar');
+    const msg = shadowDocument.getElementById('msg');
+
+    host.render = (state) => {
+        bar.hidden = !state?.loading;
+        bar.value = state?.progress ?? 0;
+        msg.textContent = state?.message ?? '';
+    };
+</script>
+```
+
+The runtime calls `host.render(state)`
+
+1. **once after `setup()` has resolved** (initial render), and
+2. **every time `data-state` changes while the element is connected.**
+
+Why the runtime has to do this: an observed attribute only makes the browser call `attributeChangedCallback`. Nothing re-renders on its own, so the runtime calls `render()` from there.
+
+`render()` is **not** called
+
+- when the same JSON string is set again (browsers fire the callback anyway, the runtime ignores it),
+- while the element is disconnected. When it is attached again, `setup()` runs and the initial render draws the latest state.
+
+Rules:
+
+- `state` is `null` when the attribute is absent, was removed or holds invalid JSON. Write `state?.x ?? default` and the component renders its empty state in all three cases.
+- Assign `host.render` **in `setup()`**, not from outside. The old function keeps pointing at the old DOM until `setup()` assigns a new one on the next connect.
+- If `setup()` has to wait for something (`await fetch(…)`), assign `host.render` **before** the `await`. State changes that arrive in the meantime are then drawn right away, and the initial render still follows when `setup()` resolves. Call `host.render(host.state)` yourself if you want the first draw before the `await`.
+- `setup()` can write `host.state = …` freely: it only calls `render()`, it never runs `setup()` again. Do **not** write `host.state` unconditionally from inside `render()`, that would loop.
+- An error thrown in `render()` is logged with `console.error` and does not stop the runtime.
+- If the attribute is already in the markup when the element is upgraded, `render()` is called once during the upgrade, but `setup()` has not run yet, so that call reaches the default no-op. The initial render after `setup()` draws the state.
+- No CSS selector can look inside the JSON. To style by state, set a class or attribute on an element inside the shadow root from your `render()` function and select on that.
+- The runtime never writes `data-state` itself.
+
+### Reacting to other attribute changes
+
+`data-state` is the only observed attribute. For any other attribute, observe the host yourself:
 
 ```html
 <script>
     const host = shadowDocument.host;
     const label = shadowDocument.querySelector('span');
 
-    const render = () => { label.textContent = host.getAttribute('title') ?? ''; };
-    const observer = new MutationObserver(render);
+    const update = () => { label.textContent = host.getAttribute('title') ?? ''; };
+    const observer = new MutationObserver(update);
     observer.observe(host, { attributes: true, attributeFilter: ['title'] });
-    render();
+    update();
 
     host.addEventListener('component:disconnected', () => observer.disconnect(), { once: true });
 </script>
 ```
 
-### Event bus / cleanup
+### Cleanup: `component:disconnected`
 
-`component:disconnected` is dispatched on the host element with `bubbles: false`. Listen on the element itself (`shadowDocument.host`), not on an ancestor.
+`component:disconnected` is the **only event** the runtime dispatches. It fires on the host element when the element is removed from the DOM, with `bubbles: false`, so listen on the element itself (`shadowDocument.host`), not on an ancestor.
+
+Because `setup()` runs again on every connect, everything it sets up outside the shadow root (timers, `window` listeners, observers, listeners on the host) has to be released here:
+
+```html
+<script>
+    const host = shadowDocument.host;
+    const timer = setInterval(() => { host.state = { ...host.state, tick: Date.now() }; }, 1000);
+
+    host.addEventListener('component:disconnected', () => clearInterval(timer), { once: true });
+</script>
+```
+
+[`@vanillaspa/event-bus`](https://github.com/vanillaspa) builds on this event: when you register a listener with a host element as `context`, the bus attaches a `component:disconnected` handler to that element and removes all of the context's listeners automatically:
+
+```html
+<script>
+    const { addEventListener } = window.eventbus; // exposed by main.js under the module's exported `name`
+
+    addEventListener('sqlite:statement', (event) => {
+        console.log(event.detail);
+    }, shadowDocument.host); // removed automatically when the element is disconnected
+</script>
+```
 
 ---
 
 ## API reference
 
-### `registerComponents(rawComponents, ...globalSheets)`
+### `registerComponents(rawComponents, ...globalStyles)`
 
 ```js
 /**
  * @param {Record<string, string|{default: string}>} rawComponents - Map of file path → raw .sfc.html content
- * @param {...CSSStyleSheet} globalSheets - Optional global stylesheets applied to every component
+ * @param {...CSSStyleSheet} globalStyles - Optional global stylesheets applied to every component
  * @returns {Promise<Array<{filePath: string, status: string, error?: Error|null}>>}
  */
 ```
@@ -459,30 +565,41 @@ failed.forEach((r) => console.error(`${r.filePath}: ${r.status}`, r.error));
 
 ### Status codes
 
-| Status              | Meaning |
-| ------------------- | ------- |
-| `ok`                | Component parsed, compiled and registered. |
-| `already-defined`   | A custom element with this tag name was already registered **before** this call. Nothing was changed. |
-| `name-derive-failed`| The path is not a non-empty string, or the file name stem contains no hyphen. |
-| `parse-failed`      | `DOMParser` did not return a document. |
-| `import-failed`     | Importing the compiled `<script>` failed (syntax error, blocked by CSP, forbidden `import`/`export` statement, …). |
-| `style-failed`      | Creating the constructable stylesheet failed (e.g. no support in this browser). |
-| `define-failed`     | `customElements.define()` threw, e.g. an invalid tag name, or two files in the **same** call with the same name stem. |
-| `system-error`      | An unexpected internal error. The entry is logged with `console.error`. |
+| Status               | Meaning |
+| -------------------- | ------- |
+| `ok`                 | Component parsed, compiled and registered. |
+| `already-defined`    | A custom element with this tag name was already registered **before** this call. Nothing was changed. |
+| `name-derive-failed` | The path is not a non-empty string, or the file name stem contains no hyphen. |
+| `parse-failed`       | `DOMParser` did not return a document. |
+| `module-failed`      | Creating the `<script>` module failed (syntax error, blocked by CSP, forbidden `import`/`export` statement, …). |
+| `style-failed`       | Creating the constructable stylesheet failed (e.g. no support in this browser). |
+| `define-failed`      | `customElements.define()` threw, e.g. an invalid tag name, or two files in the **same** call with the same name stem. |
+| `system-error`       | An unexpected internal error. The entry is logged with `console.error`. |
+
+### Host element contract
+
+| Member                   | Kind      | Description |
+| ------------------------ | --------- | ----------- |
+| `data-state`             | attribute | Observed. The component's state as JSON. See [State](#state-data-state). |
+| `state`                  | property  | Parsed `data-state` (fresh copy, `null` if absent or invalid). Assigning serializes it into the attribute. |
+| `render(state)`          | method    | No-op by default. Replace it in `setup()`. Called after `setup()` and on every state change while connected. See [Rendering](#rendering-with-render). |
+| `component:disconnected` | event     | The only event. Dispatched when the element is removed from the DOM. |
+| `shadowRoot`             | property  | Open shadow root; also passed to `setup()` as `shadowDocument`. |
 
 ### Types
 
-The package is documented with JSDoc. The exported typedefs are `SFCModule` and `RegistrationResult`.
+The package is documented with JSDoc. The exported typedefs are `SFCContent` and `RegistrationResult`.
 
 ---
 
 ## Behavior and limitations
 
 - Only the first `<template>`, `<style>` and `<script>` of a file are used; additional ones are ignored.
-- There is no scoping beyond the Shadow DOM and no reactivity system. State handling is up to your script.
+- There is no scoping beyond the Shadow DOM and no template binding or virtual DOM. Your `render(state)` function draws the component; the runtime only decides **when** it is called.
 - Components are registered once. There is no hot replacement: registering the same tag name again yields `already-defined`.
 - Component styles are applied **only** inside the shadow root. Use [global stylesheets](#global-stylesheets-tailwind-etc) for shared styles.
 - No server-side rendering.
+- `data-state` is the only observed attribute and must contain valid JSON. Use a `MutationObserver` for other attributes.
 - Windows-style paths with backslashes are not split. Normalize keys to `/` before registering.
 
 ---
@@ -586,7 +703,7 @@ if (!customElements.get(root)) {
 const modulesToLoad = [
     { load: () => import('@vanillaspa/sqlite-database') },
     { load: () => import('@vanillaspa/sqlite-database/contract') }
-    // { load: () => import('@vanillaspa/event-bus'), name: 'eventBus' }
+    // { load: () => import('@vanillaspa/event-bus') } // optional: exposed as window.eventbus (its exported `name`)
 ];
 
 const loaded = await Promise.allSettled(modulesToLoad.map((m) => m.load())); // one failing module must not block the boot
