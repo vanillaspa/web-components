@@ -21,19 +21,23 @@
         "SFC",
         "ShadowDocument",
         "ShadowDOM",
+        "ShadowH4x",
         "ShadowRoot",
         "Single File Components",
         "Single Page Application",
         "SPA",
+        "standard",
         "state",
         "Vanilla",
-        "vite",
+        "VanillaSPA",
+        "Vite",
         "WebComponents",
         "W3C"
     ],
     "license": "Unlicense",
     "peerDependencies": {
-        "vite": "latest"
+        "vite": "latest",
+        "@vitejs/plugin-basic-ssl": "latest"
     },
     "name": "@vanillaspa/web-components",
     "publishConfig": {
@@ -44,5 +48,5 @@
         "url": "git+https://github.com/vanillaspa/web-components.git"
     },
     "type": "module",
-    "version": "2.13.2"
+    "version": "2.13.3"
 }
